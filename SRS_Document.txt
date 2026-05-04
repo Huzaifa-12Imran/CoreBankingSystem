@@ -1,0 +1,45 @@
+============================================================
+SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
+PROJECT: CORE BANKING SYSTEM (CBS)
+============================================================
+
+1. PROJECT OVERVIEW
+The Core Banking System (CBS) is a robust, centralized database application 
+designed to manage a retail bank's day-to-day operations. It ensures data 
+integrity, security, and automation for customer management, financial 
+transactions, and loan lifecycles.
+
+2. FUNCTIONAL REQUIREMENTS
+
+FR1: Customer Management (CRUD)
+- The system shall allow administrators to enroll new customers.
+- The system shall support updating existing customer profiles.
+- The system shall prevent the deletion of customers with active bank accounts.
+
+FR2: Account and Interest Operations
+- The system shall support multiple account types (Savings, Current, Fixed Deposit).
+- The system shall auto-generate unique IBAN-formatted account numbers.
+- The system shall track and log daily/monthly Interest Accruals as a dedicated entity.
+
+FR3: Transaction Processing
+- The system shall facilitate Deposits, Withdrawals, and Internal Transfers.
+- All transactions must follow ACID properties for data consistency.
+- The system shall block withdrawals that exceed the available balance.
+
+FR4: Loan and Collateral Management
+- The system shall calculate EMIs and generate repayment schedules.
+- The system shall manage Collateral (Property, Vehicles, Gold) linked to specific loans.
+- The system shall update outstanding balances automatically upon payment.
+
+FR5: System Auditing
+- The system shall maintain a "Live Audit Trail" capturing every database change.
+- Logs must include operation type, timestamp, and the performing user.
+
+3. SYSTEM AND NON-FUNCTIONAL REQUIREMENTS
+- DBMS: PostgreSQL (Relational).
+- Normalization: 3rd Normal Form (3NF).
+- Security: DCL-based user roles (Admin, Teller, Manager).
+- Performance: B-Tree Indexing for high-speed retrieval.
+
+4. ENTITY LIST
+- Account, Customer, Transaction, Branch, Loan, Collateral, Card, Employee, AuditLog, Interest.

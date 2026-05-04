@@ -1,0 +1,1664 @@
+-- ============================================================
+--  CORE BANKING SYSTEM (CBS) --- DATABASE SCHEMA & DCL
+--  Phase I & II: Table Definitions, Constraints, and Permissions
+-- ============================================================
+
+-- ------ DROP in reverse dependency order ------
+DROP TABLE IF EXISTS interest_accruals   CASCADE;
+DROP TABLE IF EXISTS collateral         CASCADE;
+DROP TABLE IF EXISTS audit_log         CASCADE;
+DROP TABLE IF EXISTS loan_payments     CASCADE;
+DROP TABLE IF EXISTS loans             CASCADE;
+DROP TABLE IF EXISTS transactions      CASCADE;
+DROP TABLE IF EXISTS accounts          CASCADE;
+DROP TABLE IF EXISTS cards             CASCADE;
+DROP TABLE IF EXISTS employees         CASCADE;
+DROP TABLE IF EXISTS branches          CASCADE;
+DROP TABLE IF EXISTS customers         CASCADE;
+DROP TABLE IF EXISTS account_types     CASCADE;
+DROP TABLE IF EXISTS loan_types        CASCADE;
+
+-- ============================================================
+-- 1. LOOKUP / REFERENCE TABLES
+-- ============================================================
+
+CREATE TABLE account_types (
+    account_type_id   INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    type_name         VARCHAR(30)    NOT NULL UNIQUE,
+    interest_rate     NUMERIC(5,2)   NOT NULL CHECK (interest_rate >= 0),
+    min_balance       NUMERIC(12,2)  DEFAULT 0 NOT NULL CHECK (min_balance >= 0),
+    description       VARCHAR(200)
+);
+
+CREATE TABLE loan_types (
+    loan_type_id      INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    type_name         VARCHAR(40)    NOT NULL UNIQUE,
+    base_rate         NUMERIC(5,2)   NOT NULL CHECK (base_rate > 0),
+    max_amount        NUMERIC(14,2)  NOT NULL,
+    max_tenure_months INTEGER        NOT NULL CHECK (max_tenure_months > 0),
+    description       VARCHAR(200)
+);
+
+-- ============================================================
+-- 2. CORE ENTITY TABLES
+-- ============================================================
+
+CREATE TABLE branches (
+    branch_id         INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    branch_code       VARCHAR(10)    NOT NULL UNIQUE,
+    branch_name       VARCHAR(100)   NOT NULL,
+    city              VARCHAR(60)    NOT NULL,
+    address           VARCHAR(200)   NOT NULL,
+    phone             VARCHAR(20),
+    ifsc_code         VARCHAR(15)    NOT NULL UNIQUE,
+    established_date  DATE           DEFAULT CURRENT_DATE NOT NULL,
+    is_active         CHAR(1)        DEFAULT 'Y' NOT NULL CHECK (is_active IN ('Y','N'))
+);
+
+CREATE TABLE customers (
+    customer_id       INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    cnic              VARCHAR(15)    NOT NULL UNIQUE,
+    first_name        VARCHAR(60)    NOT NULL,
+    last_name         VARCHAR(60)    NOT NULL,
+    date_of_birth     DATE           NOT NULL,
+    gender            CHAR(1)        NOT NULL CHECK (gender IN ('M','F','O')),
+    email             VARCHAR(120)   UNIQUE,
+    phone             VARCHAR(20)    NOT NULL,
+    address           VARCHAR(300)   NOT NULL,
+    city              VARCHAR(60)    NOT NULL,
+    credit_score      INTEGER        DEFAULT 650 CHECK (credit_score BETWEEN 300 AND 850),
+    kyc_status        VARCHAR(20)    DEFAULT 'PENDING' CHECK (kyc_status IN ('PENDING','VERIFIED','REJECTED')),
+    registration_date DATE           DEFAULT CURRENT_DATE NOT NULL,
+    is_active         CHAR(1)        DEFAULT 'Y' NOT NULL CHECK (is_active IN ('Y','N'))
+);
+
+CREATE TABLE employees (
+    employee_id       INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    branch_id         INTEGER        NOT NULL REFERENCES branches(branch_id),
+    first_name        VARCHAR(60)    NOT NULL,
+    last_name         VARCHAR(60)    NOT NULL,
+    cnic              VARCHAR(15)    NOT NULL UNIQUE,
+    designation       VARCHAR(80)    NOT NULL,
+    department        VARCHAR(60)    NOT NULL,
+    salary            NUMERIC(12,2)  NOT NULL CHECK (salary > 0),
+    email             VARCHAR(120)   NOT NULL UNIQUE,
+    hire_date         DATE           DEFAULT CURRENT_DATE NOT NULL,
+    manager_id        INTEGER        REFERENCES employees(employee_id),
+    is_active         CHAR(1)        DEFAULT 'Y' NOT NULL CHECK (is_active IN ('Y','N'))
+);
+
+-- ============================================================
+-- 3. ACCOUNTS
+-- ============================================================
+
+CREATE TABLE accounts (
+    account_id        INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    account_number    VARCHAR(20)    NOT NULL UNIQUE,
+    customer_id       INTEGER        NOT NULL REFERENCES customers(customer_id),
+    branch_id         INTEGER        NOT NULL REFERENCES branches(branch_id),
+    account_type_id   INTEGER        NOT NULL REFERENCES account_types(account_type_id),
+    balance           NUMERIC(14,2)  DEFAULT 0 NOT NULL,
+    opened_date       DATE           DEFAULT CURRENT_DATE NOT NULL,
+    status            VARCHAR(15)    DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','DORMANT','CLOSED','FROZEN')),
+    currency          CHAR(3)        DEFAULT 'PKR' NOT NULL,
+    last_txn_date     DATE
+);
+
+CREATE TABLE cards (
+    card_id           INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    account_id        INTEGER        NOT NULL REFERENCES accounts(account_id),
+    card_number       VARCHAR(19)    NOT NULL UNIQUE,
+    card_type         VARCHAR(15)    NOT NULL CHECK (card_type IN ('DEBIT','CREDIT','PREPAID')),
+    expiry_date       DATE           NOT NULL,
+    cvv_hash          VARCHAR(64)    NOT NULL,
+    daily_limit       NUMERIC(10,2)  DEFAULT 50000 NOT NULL,
+    is_active         CHAR(1)        DEFAULT 'Y' NOT NULL CHECK (is_active IN ('Y','N')),
+    issued_date       DATE           DEFAULT CURRENT_DATE NOT NULL
+);
+
+-- ============================================================
+-- 4. TRANSACTIONS
+-- ============================================================
+
+CREATE TABLE transactions (
+    transaction_id    INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    account_id        INTEGER        NOT NULL REFERENCES accounts(account_id),
+    txn_type          VARCHAR(20)    NOT NULL CHECK (txn_type IN ('DEPOSIT','WITHDRAWAL','TRANSFER_IN','TRANSFER_OUT','FEE','INTEREST')),
+    amount            NUMERIC(14,2)  NOT NULL CHECK (amount > 0),
+    balance_after     NUMERIC(14,2)  NOT NULL,
+    reference_no      VARCHAR(30)    NOT NULL UNIQUE,
+    description       VARCHAR(300),
+    channel           VARCHAR(20)    DEFAULT 'BRANCH' CHECK (channel IN ('BRANCH','ATM','MOBILE','INTERNET','POS')),
+    txn_date          DATE           DEFAULT CURRENT_DATE NOT NULL,
+    performed_by      INTEGER        REFERENCES employees(employee_id),
+    status            VARCHAR(15)    DEFAULT 'SUCCESS' CHECK (status IN ('SUCCESS','FAILED','REVERSED','PENDING'))
+);
+
+-- ============================================================
+-- 5. LOANS
+-- ============================================================
+
+CREATE TABLE loans (
+    loan_id           INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    customer_id       INTEGER        NOT NULL REFERENCES customers(customer_id),
+    loan_type_id      INTEGER        NOT NULL REFERENCES loan_types(loan_type_id),
+    branch_id         INTEGER        NOT NULL REFERENCES branches(branch_id),
+    approved_by       INTEGER        REFERENCES employees(employee_id),
+    principal_amount  NUMERIC(14,2)  NOT NULL CHECK (principal_amount > 0),
+    interest_rate     NUMERIC(5,2)   NOT NULL CHECK (interest_rate > 0),
+    tenure_months     INTEGER        NOT NULL CHECK (tenure_months > 0),
+    emi_amount        NUMERIC(12,2)  NOT NULL,
+    disbursement_date DATE,
+    maturity_date     DATE,
+    outstanding       NUMERIC(14,2),
+    status            VARCHAR(15)    DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','ACTIVE','CLOSED','DEFAULTED','REJECTED')),
+    application_date  DATE           DEFAULT CURRENT_DATE NOT NULL
+);
+
+CREATE TABLE loan_payments (
+    payment_id          INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    loan_id             INTEGER        NOT NULL REFERENCES loans(loan_id),
+    payment_date        DATE           DEFAULT CURRENT_DATE NOT NULL,
+    amount_paid         NUMERIC(12,2)  NOT NULL CHECK (amount_paid > 0),
+    principal_component NUMERIC(12,2)  NOT NULL,
+    interest_component  NUMERIC(12,2)  NOT NULL,
+    balance_remaining   NUMERIC(14,2)  NOT NULL,
+    payment_mode        VARCHAR(20)    DEFAULT 'ACCOUNT_DEBIT' CHECK (payment_mode IN ('ACCOUNT_DEBIT','CASH','CHEQUE','ONLINE')),
+    status              VARCHAR(15)    DEFAULT 'SUCCESS' CHECK (status IN ('SUCCESS','FAILED','BOUNCED'))
+);
+
+CREATE TABLE collateral (
+    collateral_id       INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    loan_id             INTEGER        NOT NULL REFERENCES loans(loan_id),
+    asset_type          VARCHAR(30)    NOT NULL, -- e.g. PROPERTY, VEHICLE, GOLD
+    estimated_value     NUMERIC(14,2)  NOT NULL,
+    valuation_date      DATE           DEFAULT CURRENT_DATE,
+    description         VARCHAR(500),
+    status              VARCHAR(20)    DEFAULT 'HELD' CHECK (status IN ('HELD','RELEASED','LIQUIDATED'))
+);
+
+CREATE TABLE interest_accruals (
+    accrual_id          INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    account_id          INTEGER        NOT NULL REFERENCES accounts(account_id),
+    accrual_date        DATE           DEFAULT CURRENT_DATE NOT NULL,
+    interest_amount     NUMERIC(12,2)  NOT NULL,
+    rate_applied        NUMERIC(5,2)   NOT NULL,
+    remarks             VARCHAR(100)
+);
+
+-- ============================================================
+-- 6. AUDIT LOG
+-- ============================================================
+
+CREATE TABLE audit_log (
+    log_id            INTEGER        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    table_name        VARCHAR(50)    NOT NULL,
+    operation         VARCHAR(10)    NOT NULL CHECK (operation IN ('INSERT','UPDATE','DELETE')),
+    record_id         INTEGER        NOT NULL,
+    changed_by        VARCHAR(80)    DEFAULT CURRENT_USER NOT NULL,
+    change_timestamp  TIMESTAMPTZ    DEFAULT NOW() NOT NULL,
+    old_value         TEXT,
+    new_value         TEXT,
+    remarks           VARCHAR(500)
+);
+
+-- ============================================================
+-- 7. SEQUENCES
+-- ============================================================
+
+--  Required by the account-number auto-generation trigger in 04_plsql_module.sql
+CREATE SEQUENCE IF NOT EXISTS acc_seq START 1;
+
+-- ============================================================
+-- 8. INDEXES
+-- ============================================================
+
+CREATE INDEX idx_accounts_customer   ON accounts(customer_id);
+CREATE INDEX idx_accounts_branch     ON accounts(branch_id);
+CREATE INDEX idx_txn_account_date    ON transactions(account_id, txn_date DESC);
+CREATE INDEX idx_txn_date            ON transactions(txn_date DESC);
+CREATE INDEX idx_loans_customer      ON loans(customer_id);
+CREATE INDEX idx_loans_status        ON loans(status);
+CREATE INDEX idx_customers_cnic      ON customers(cnic);
+CREATE INDEX idx_customers_city      ON customers(city);
+CREATE INDEX idx_lp_loan             ON loan_payments(loan_id);
+CREATE INDEX idx_audit_table_op      ON audit_log(table_name, operation);
+
+-- ============================================================
+-- 9. VIEWS
+-- ============================================================
+
+-- Customer portfolio
+CREATE OR REPLACE VIEW vw_customer_portfolio AS
+    SELECT c.customer_id,
+           c.first_name || ' ' || c.last_name AS customer_name,
+           c.cnic, c.credit_score, c.kyc_status,
+           a.account_number, at.type_name AS account_type,
+           a.balance, a.status AS account_status, a.currency,
+           b.branch_name, b.city AS branch_city
+    FROM   customers     c
+    JOIN   accounts      a  ON a.customer_id    = c.customer_id
+    JOIN   account_types at ON at.account_type_id = a.account_type_id
+    JOIN   branches      b  ON b.branch_id      = a.branch_id;
+
+-- Active loan summary
+CREATE OR REPLACE VIEW vw_active_loans AS
+    SELECT l.loan_id,
+           c.first_name || ' ' || c.last_name AS customer_name,
+           c.cnic, lt.type_name AS loan_type,
+           l.principal_amount, l.outstanding, l.interest_rate,
+           l.tenure_months, l.emi_amount, l.maturity_date, l.status,
+           b.branch_name,
+           e.first_name || ' ' || e.last_name AS approved_by
+    FROM   loans      l
+    JOIN   customers  c  ON c.customer_id  = l.customer_id
+    JOIN   loan_types lt ON lt.loan_type_id = l.loan_type_id
+    JOIN   branches   b  ON b.branch_id    = l.branch_id
+    LEFT JOIN employees e ON e.employee_id = l.approved_by
+    WHERE  l.status IN ('ACTIVE','APPROVED');
+
+-- Monthly transaction summary
+CREATE OR REPLACE VIEW vw_monthly_txn_summary AS
+    SELECT a.account_number,
+           c.first_name || ' ' || c.last_name AS customer_name,
+           EXTRACT(YEAR  FROM t.txn_date)::INT AS txn_year,
+           EXTRACT(MONTH FROM t.txn_date)::INT AS txn_month,
+           t.txn_type,
+           COUNT(*)        AS txn_count,
+           SUM(t.amount)   AS total_amount,
+           AVG(t.amount)   AS avg_amount
+    FROM   transactions t
+    JOIN   accounts     a ON a.account_id  = t.account_id
+    JOIN   customers    c ON c.customer_id = a.customer_id
+    GROUP  BY a.account_number, c.first_name, c.last_name,
+              EXTRACT(YEAR FROM t.txn_date), EXTRACT(MONTH FROM t.txn_date), t.txn_type;
+
+-- Branch performance
+CREATE OR REPLACE VIEW vw_branch_performance AS
+    SELECT b.branch_id, b.branch_name, b.city,
+           COUNT(DISTINCT a.account_id)  AS total_accounts,
+           SUM(a.balance)                AS total_deposits,
+           COUNT(DISTINCT l.loan_id)     AS total_loans,
+           SUM(l.principal_amount)       AS total_loan_amount,
+           COUNT(DISTINCT e.employee_id) AS staff_count
+    FROM   branches  b
+    LEFT JOIN accounts   a ON a.branch_id = b.branch_id AND a.status = 'ACTIVE'
+    LEFT JOIN loans      l ON l.branch_id = b.branch_id AND l.status IN ('ACTIVE','APPROVED')
+    LEFT JOIN employees  e ON e.branch_id = b.branch_id AND e.is_active = 'Y'
+    GROUP  BY b.branch_id, b.branch_name, b.city;
+
+-- ============================================================
+-- 10. DCL --- ROLES & PERMISSIONS (PostgreSQL style)
+--    Run these as superuser / owner of the database.
+-- ============================================================
+
+-- Create roles (idempotent pattern)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cbs_app')    THEN CREATE ROLE cbs_app    LOGIN PASSWORD 'App@2024#'; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cbs_report') THEN CREATE ROLE cbs_report LOGIN PASSWORD 'Rep@2024#'; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cbs_teller') THEN CREATE ROLE cbs_teller LOGIN PASSWORD 'Tel@2024#'; END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cbs_audit')  THEN CREATE ROLE cbs_audit  LOGIN PASSWORD 'Aud@2024#'; END IF;
+END $$;
+
+-- Application user
+GRANT SELECT, INSERT, UPDATE ON customers     TO cbs_app;
+GRANT SELECT, INSERT, UPDATE ON accounts      TO cbs_app;
+GRANT SELECT, INSERT         ON transactions  TO cbs_app;
+GRANT SELECT, INSERT, UPDATE ON loans         TO cbs_app;
+GRANT SELECT, INSERT         ON loan_payments TO cbs_app;
+GRANT SELECT, INSERT         ON audit_log     TO cbs_app;
+GRANT SELECT                 ON account_types TO cbs_app;
+GRANT SELECT                 ON loan_types    TO cbs_app;
+GRANT SELECT                 ON branches      TO cbs_app;
+-- Grant usage on all identity sequences so cbs_app can INSERT
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO cbs_app;
+
+-- Teller
+GRANT SELECT, INSERT ON transactions TO cbs_teller;
+GRANT SELECT, UPDATE ON accounts     TO cbs_teller;
+GRANT SELECT         ON customers    TO cbs_teller;
+
+-- Report user
+GRANT SELECT ON vw_customer_portfolio  TO cbs_report;
+GRANT SELECT ON vw_active_loans        TO cbs_report;
+GRANT SELECT ON vw_monthly_txn_summary TO cbs_report;
+GRANT SELECT ON vw_branch_performance  TO cbs_report;
+
+-- Audit user
+GRANT SELECT ON audit_log    TO cbs_audit;
+GRANT SELECT ON transactions TO cbs_audit;
+
+-- Revoke from PUBLIC (PostgreSQL grants CONNECT to PUBLIC by default; tighten here)
+REVOKE ALL ON customers    FROM PUBLIC;
+REVOKE ALL ON accounts     FROM PUBLIC;
+REVOKE ALL ON transactions FROM PUBLIC;
+REVOKE ALL ON loans        FROM PUBLIC;
+-- ============================================================
+--  CORE BANKING SYSTEM (CBS) --- DATA POPULATION
+--  Phase II: Mock Data for Testing and Verification
+-- ============================================================
+
+-- ------ 1. ACCOUNT TYPES ------------------------------------------------------------------------------------------------------------------
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Current Account',        0.00, 10000, 'Business / daily-use current account');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Savings Account',        6.50,  1000, 'Standard savings with monthly profit');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Premium Savings',        8.00,  5000, 'High-yield savings for premium clients');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Fixed Deposit 1Y',      11.50, 10000, '1-year fixed deposit account');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Fixed Deposit 3Y',      12.50, 25000, '3-year fixed deposit account');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Salary Account',         5.00,     0, 'Zero-balance salary account');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Student Account',        4.00,     0, 'Zero-balance student account');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Senior Citizen Savings', 9.00,  2000, 'Enhanced profit for 60+ customers');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Foreign Currency USD',   2.50,   500, 'USD-denominated savings account');
+INSERT INTO account_types (type_name, interest_rate, min_balance, description) VALUES ('Digital Account',        7.00,     0, 'App-only paperless account');
+
+-- ------ 2. LOAN TYPES ---------------------------------------------------------------------------------------------------------------------------
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Personal Loan',      18.00,  2000000,  60, 'Unsecured personal finance');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Home Loan',          14.00, 50000000, 240, 'Secured housing finance');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Auto Loan',          16.00,  5000000,  72, 'Vehicle purchase financing');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Business Loan',      20.00, 20000000, 120, 'SME / corporate lending');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Education Loan',     10.00,  3000000,  84, 'Higher education financing');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Agricultural Loan',   9.00,  5000000,  36, 'Crop / farming input loans');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Gold Loan',          15.00,  1000000,  24, 'Loan against gold collateral');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Overdraft Facility', 22.00,   500000,  12, 'Current account overdraft line');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Renovation Loan',    17.00,  3000000,  60, 'Home improvement financing');
+INSERT INTO loan_types (type_name, base_rate, max_amount, max_tenure_months, description) VALUES ('Medical Loan',       13.00,  1500000,  48, 'Healthcare expense financing');
+
+-- ------ 3. BRANCHES ---------------------------------------------------------------------------------------------------------------------------------
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('KHI001','Karachi Main Branch',   'Karachi',   'I.I. Chundrigar Road, PIDC House',  '+92-21-35680001','CBS0KHI001','2005-03-15');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('KHI002','DHA Branch',            'Karachi',   'Phase VI, Bukhari Commercial',      '+92-21-35362002','CBS0KHI002','2008-06-01');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('KHI003','PECHS Branch',          'Karachi',   'Block-6, PECHS, Shahrah-e-Faisal',  '+92-21-34543003','CBS0KHI003','2010-09-20');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('LHR001','Lahore Main Branch',    'Lahore',    'Mall Road, Aiwan-e-Iqbal Complex',  '+92-42-36010004','CBS0LHR001','2005-07-10');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('LHR002','Gulberg Branch',        'Lahore',    'Main Boulevard, Gulberg III',       '+92-42-35771005','CBS0LHR002','2012-01-05');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('ISB001','Islamabad Blue Area',   'Islamabad', 'Blue Area, Jinnah Avenue',          '+92-51-28310006','CBS0ISB001','2006-11-30');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('ISB002','F-10 Markaz Branch',    'Islamabad', 'F-10 Markaz, Block-A',             '+92-51-22310007','CBS0ISB002','2015-04-18');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('PES001','Peshawar Saddar Branch','Peshawar',  'Saddar Road, Cantt Area',           '+92-91-52730008','CBS0PES001','2009-02-14');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('QTA001','Quetta Main Branch',    'Quetta',    'Jinnah Road, City Centre',          '+92-81-28050009','CBS0QTA001','2011-08-05');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('MUL001','Multan Hussain Agahi',  'Multan',    'Hussain Agahi Road',                '+92-61-45220010','CBS0MUL001','2013-05-22');
+INSERT INTO branches (branch_code, branch_name, city, address, phone, ifsc_code, established_date) VALUES ('FSB001','Faisalabad D Ground',   'Faisalabad','D Ground, Karkhana Bazar',          '+92-41-26500011','CBS0FSB001','2014-10-11');
+
+-- ------ 4. CUSTOMERS ------------------------------------------------------------------------------------------------------------------------------
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345671','Ahmed',  'Khan',     '1985-04-12','M','ahmed.khan@email.com',   '+92-300-1234567','House 12, Block B, Gulshan-e-Iqbal','Karachi',  720,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345672','Fatima', 'Ali',      '1990-08-25','F','fatima.ali@email.com',   '+92-321-2345678','Flat 5A, Defence View Apts',         'Karachi',  685,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345673','Bilal',  'Sheikh',   '1978-11-03','M','bilal.sheikh@email.com', '+92-333-3456789','Plot 22, North Nazimabad',            'Karachi',  760,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345674','Ayesha', 'Siddiqui', '1995-02-17','F','ayesha.s@email.com',     '+92-345-4567890','House 7, Johar Town',                 'Lahore',   640,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345675','Usman',  'Malik',    '1982-06-30','M','usman.malik@email.com',  '+92-311-5678901','Street 4, F-7/2',                     'Islamabad',800,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345676','Sana',   'Qureshi',  '1993-09-14','F','sana.q@email.com',       '+92-300-6789012','House 3, Model Town',                 'Lahore',   700,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345677','Tariq',  'Hussain',  '1970-01-22','M','tariq.h@email.com',      '+92-321-7890123','Plot 9, Cantt Area',                  'Peshawar', 715,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345678','Zara',   'Baig',     '1998-12-05','F','zara.baig@email.com',    '+92-333-8901234','Hostel Block C, UET',                 'Lahore',   580,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345679','Kamran', 'Iqbal',    '1975-07-19','M','kamran.i@email.com',     '+92-345-9012345','House 45, Satellite Town',             'Quetta',   690,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345680','Nadia',  'Farooq',   '1988-03-28','F','nadia.f@email.com',      '+92-311-0123456','Flat 12, Bahria Enclave',              'Islamabad',730,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345681','Hassan', 'Raza',     '1965-10-10','M','hassan.r@email.com',     '+92-300-1122334','House 88, Hussain Agahi',              'Multan',   750,'VERIFIED');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345682','Mariam', 'Javed',    '2001-05-03','F','mariam.j@email.com',     '+92-321-2233445','Dorm 3, BZU Campus',                  'Multan',   560,'PENDING');
+INSERT INTO customers (cnic,first_name,last_name,date_of_birth,gender,email,phone,address,city,credit_score,kyc_status) VALUES ('3520212345683','Faisal', 'Nawaz',    '1991-08-15','M','faisal.n@email.com',     '+92-333-3344556','Plot 55, D-Ground Area',              'Faisalabad',670,'VERIFIED');
+
+-- ------ 5. EMPLOYEES ------------------------------------------------------------------------------------------------------------------------------
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date) VALUES
+  (1,'Khalid','Rahman','3520299999901','Branch Manager','Management',250000,'k.rahman@cbs.pk','2010-01-15');
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (1,'Amina','Syed','3520299999902','Senior Teller','Operations',80000,'a.syed@cbs.pk','2015-03-10',1);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (1,'Rizwan','Butt','3520299999903','Teller','Operations',60000,'r.butt@cbs.pk','2019-06-01',1);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (1,'Saima','Naz','3520299999904','Loan Officer','Credit',90000,'s.naz@cbs.pk','2016-09-20',1);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date) VALUES
+  (4,'Imran','Shah','3520299999905','Branch Manager','Management',240000,'i.shah@cbs.pk','2009-04-01');
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (4,'Mehwish','Chaudhry','3520299999906','Senior Teller','Operations',78000,'m.chaudhry@cbs.pk','2017-11-15',5);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (4,'Omar','Farhan','3520299999907','Relationship Manager','Retail',110000,'o.farhan@cbs.pk','2014-02-28',5);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date) VALUES
+  (6,'Rabia','Tahir','3520299999908','Branch Manager','Management',260000,'r.tahir@cbs.pk','2008-07-15');
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (6,'Shahid','Mir','3520299999909','IT Officer','Technology',120000,'s.mir@cbs.pk','2020-01-10',8);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (6,'Hina','Lodhi','3520299999910','Compliance Officer','Compliance',130000,'h.lodhi@cbs.pk','2013-05-05',8);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (1,'Ali','Raza','3520299999911','Customer Service Rep','Operations',55000,'ali.raza@cbs.pk','2022-03-01',1);
+INSERT INTO employees (branch_id,first_name,last_name,cnic,designation,department,salary,email,hire_date,manager_id) VALUES
+  (2,'Sara','Khan','3520299999912','Teller','Operations',58000,'sara.khan@cbs.pk','2021-08-15',1);
+
+-- ------ 6. ACCOUNTS ---------------------------------------------------------------------------------------------------------------------------------
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0KHI001000001',1,1,2,125000,'2020-01-10','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0KHI001000002',1,1,1,500000,'2020-01-10','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0KHI002000003',2,2,6,85000,'2021-03-15','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0KHI001000004',3,1,3,950000,'2019-06-20','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0LHR001000005',4,4,2,42000,'2022-05-01','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0ISB001000006',5,6,3,2500000,'2018-11-12','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0LHR001000007',6,4,6,120000,'2023-02-28','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0PES001000008',7,8,1,750000,'2017-08-19','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0LHR002000009',8,5,7,5000,'2023-09-01','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0QTA001000010',9,9,2,98000,'2020-12-10','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0ISB001000011',10,6,3,1800000,'2016-03-22','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0MUL001000012',11,10,8,350000,'2014-07-05','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0MUL001000013',12,10,7,2500,'2024-01-20','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0FSB001000014',13,11,2,67000,'2022-11-11','ACTIVE','PKR');
+INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balance,opened_date,status,currency) VALUES ('PK36CBS0KHI001000015',5,1,9,15000,'2021-04-01','ACTIVE','USD');
+
+-- ------ 7. CARDS ------------------------------------------------------------------------------------------------------------------------------------------
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (1,'4111111111110001','DEBIT', '2027-12-31','abc123hash',50000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (2,'4111111111110002','DEBIT', '2027-06-30','abc124hash',200000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (3,'4111111111110003','DEBIT', '2026-09-30','abc125hash',50000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (4,'4111111111110004','CREDIT','2028-03-31','abc126hash',500000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (5,'4111111111110005','DEBIT', '2027-12-31','abc127hash',50000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (6,'4111111111110006','CREDIT','2028-06-30','abc128hash',1000000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (7,'4111111111110007','DEBIT', '2026-12-31','abc129hash',100000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (8,'4111111111110008','DEBIT', '2027-09-30','abc130hash',150000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (9,'4111111111110009','DEBIT', '2026-03-31','abc131hash',20000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (10,'4111111111110010','DEBIT','2027-12-31','abc132hash',50000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (11,'4111111111110011','CREDIT','2028-12-31','abc133hash',750000);
+INSERT INTO cards (account_id,card_number,card_type,expiry_date,cvv_hash,daily_limit) VALUES (12,'4111111111110012','DEBIT','2027-06-30','abc134hash',100000);
+
+-- ------ 8. TRANSACTIONS ---------------------------------------------------------------------------------------------------------------------
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,performed_by,status) VALUES (1,'DEPOSIT',50000,125000,'REF20240115001','Initial cash deposit','BRANCH','2024-01-15',2,'SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (1,'WITHDRAWAL',15000,110000,'REF20240118002','ATM cash withdrawal','ATM','2024-01-18','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (1,'TRANSFER_OUT',20000,90000,'REF20240201003','Online bill payment - KESC','INTERNET','2024-02-01','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,performed_by,status) VALUES (2,'DEPOSIT',500000,500000,'REF20200110004','Account opening deposit','BRANCH','2020-01-10',2,'SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (3,'DEPOSIT',85000,85000,'REF20210315005','Salary credit March 2021','INTERNET','2021-03-15','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (3,'FEE',500,84500,'REF20210401006','Monthly maintenance fee','BRANCH','2021-04-01','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (4,'DEPOSIT',1000000,950000,'REF20190620007','Business proceeds deposit','BRANCH','2019-06-20','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (5,'DEPOSIT',42000,42000,'REF20220501008','Initial deposit','BRANCH','2022-05-01','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (6,'DEPOSIT',2500000,2500000,'REF20181112009','Investment transfer','INTERNET','2018-11-12','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (6,'INTEREST',15000,2515000,'REF20240131010','Monthly profit credit Jan','BRANCH','2024-01-31','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (7,'DEPOSIT',120000,120000,'REF20230228011','Salary credit Feb 2023','INTERNET','2023-02-28','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (7,'WITHDRAWAL',30000,90000,'REF20230315012','POS purchase - Hyperstar','POS','2023-03-15','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (8,'DEPOSIT',750000,750000,'REF20170819013','Business account funding','BRANCH','2017-08-19','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (10,'DEPOSIT',98000,98000,'REF20201210014','Salary transfer','INTERNET','2020-12-10','SUCCESS');
+INSERT INTO transactions (account_id,txn_type,amount,balance_after,reference_no,description,channel,txn_date,status) VALUES (1,'TRANSFER_IN',35000,160000,'REF20240310015','Transfer from family','MOBILE','2024-03-10','SUCCESS');
+
+-- ------ 9. LOANS ------------------------------------------------------------------------------------------------------------------------------------------
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (1,1,1,4,500000,18.00,24,24939,'2023-02-01','2025-01-31',250000,'ACTIVE','2023-01-15');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (3,2,1,4,8000000,14.50,180,113500,'2021-09-01','2036-08-31',6800000,'ACTIVE','2021-08-10');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (5,3,6,8,1500000,16.00,60,36392,'2022-06-15','2027-05-31',900000,'ACTIVE','2022-06-01');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (7,4,8,8,5000000,20.00,84,109167,'2020-03-01','2027-02-28',3000000,'ACTIVE','2020-02-15');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (8,5,5,5,300000,10.00,36,9676,'2023-10-01','2026-09-30',210000,'ACTIVE','2023-09-15');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (2,1,2,4,200000,19.00,12,18408,'2022-01-01','2022-12-31',0,'CLOSED','2021-12-10');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (11,2,10,8,12000000,14.00,240,152000,'2019-05-01','2039-04-30',10800000,'ACTIVE','2019-04-15');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (13,6,11,NULL,400000,9.00,24,18318,NULL,NULL,400000,'PENDING','2024-03-20');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (6,9,4,7,1000000,17.00,48,28956,'2024-01-15','2028-01-14',950000,'ACTIVE','2024-01-01');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (9,7,9,8,150000,15.00,12,13563,'2023-06-01','2024-05-31',0,'CLOSED','2023-05-20');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,approved_by,principal_amount,interest_rate,tenure_months,emi_amount,disbursement_date,maturity_date,outstanding,status,application_date) VALUES (4,10,4,7,80000,13.00,24,3798,'2023-11-01','2025-10-31',60000,'ACTIVE','2023-10-25');
+
+-- ------ 10. LOAN PAYMENTS ---------------------------------------------------------------------------------------------------------------
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (1,'2023-03-01',24939,17439,7500,482561,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (1,'2023-04-01',24939,17700,7239,464861,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (1,'2023-05-01',24939,17966,6973,446895,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (2,'2021-10-01',113500,75167,38333,7924833,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (2,'2021-11-01',113500,76076,37424,7848757,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (3,'2022-07-15',36392,18392,18000,1481608,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (3,'2022-08-15',36392,18613,17779,1462995,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (5,'2023-11-01',9676,7176,2500,292824,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (5,'2023-12-01',9676,7236,2440,285588,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (6,'2022-02-01',18408,15241,3167,184759,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (6,'2022-03-01',18408,15482,2926,169277,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (7,'2019-06-01',152000,12000,140000,11988000,'ONLINE');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (9,'2024-02-15',28956,22456,6500,927544,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (11,'2023-12-01',3798,2931,867,77069,'ACCOUNT_DEBIT');
+INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (11,'2024-01-01',3798,2963,835,74106,'ACCOUNT_DEBIT');
+-- ============================================================
+--  CORE BANKING SYSTEM (CBS) --- PHASE III: ADVANCED QUERIES
+--  Includes Joins, Set Operations, Subqueries, and Aggregates
+-- ============================================================
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION A: JOINS
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- A1. INNER JOIN --- Customer + Account + Branch details
+SELECT c.first_name || ' ' || c.last_name    AS customer_name,
+       c.cnic,
+       a.account_number,
+       at.type_name                           AS account_type,
+       a.balance,
+       a.status,
+       b.branch_name,
+       b.city
+FROM   customers    c
+JOIN   accounts     a  ON a.customer_id      = c.customer_id
+JOIN   account_types at ON at.account_type_id = a.account_type_id
+JOIN   branches     b  ON b.branch_id        = a.branch_id
+WHERE  a.status = 'ACTIVE'
+ORDER  BY a.balance DESC;
+
+-- A2. LEFT OUTER JOIN --- All customers, show loan info if exists
+SELECT c.first_name || ' ' || c.last_name    AS customer_name,
+       c.credit_score,
+       l.loan_id,
+       lt.type_name                           AS loan_type,
+       l.principal_amount,
+       l.status                               AS loan_status
+FROM   customers  c
+LEFT JOIN loans      l  ON l.customer_id   = c.customer_id
+LEFT JOIN loan_types lt ON lt.loan_type_id = l.loan_type_id
+ORDER  BY c.customer_id;
+
+-- A3. RIGHT OUTER JOIN --- All branches even if no employees yet
+SELECT b.branch_name, b.city,
+       e.first_name || ' ' || e.last_name    AS employee_name,
+       e.designation,
+       e.department
+FROM   employees e
+RIGHT JOIN branches b ON b.branch_id = e.branch_id
+ORDER  BY b.branch_id;
+
+-- A4. FULL OUTER JOIN --- Customers vs Loans (see who never borrowed)
+-- A4. FULL OUTER JOIN --- Customers vs Loans (see who never borrowed)
+SELECT c.first_name || ' ' || c.last_name           AS customer_name,
+       COALESCE(l.loan_id::TEXT, 'NO LOAN')          AS loan_ref,
+       COALESCE(l.principal_amount::TEXT, '---')       AS principal,
+       COALESCE(l.status, '---')                       AS loan_status
+FROM   customers c
+FULL OUTER JOIN loans l ON l.customer_id = c.customer_id
+ORDER  BY c.customer_id NULLS LAST;
+
+-- A5. SELF JOIN --- Employees and their managers
+SELECT e.first_name || ' ' || e.last_name   AS employee,
+       e.designation,
+       m.first_name || ' ' || m.last_name   AS reports_to,
+       m.designation                        AS manager_designation
+FROM   employees e
+LEFT JOIN employees m ON m.employee_id = e.manager_id
+ORDER  BY m.employee_id NULLS LAST, e.employee_id;
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION B: SET OPERATIONS
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- B1. UNION --- All cities that have either branches or active customers
+SELECT city, 'Branch City' AS source FROM branches
+UNION
+SELECT city, 'Customer City' AS source FROM customers
+ORDER BY city;
+
+-- B2. UNION ALL --- Combined deposit + interest transactions
+SELECT 'DEPOSIT'  AS txn_category, account_id, amount, txn_date
+FROM   transactions WHERE txn_type = 'DEPOSIT'
+UNION ALL
+SELECT 'INTEREST', account_id, amount, txn_date
+FROM   transactions WHERE txn_type = 'INTEREST'
+ORDER  BY txn_date DESC;
+
+-- B3. INTERSECT --- Customers who have BOTH an active account AND an active loan
+SELECT customer_id FROM accounts WHERE status = 'ACTIVE'
+INTERSECT
+SELECT customer_id FROM loans   WHERE status = 'ACTIVE';
+
+-- B4. EXCEPT --- Customers with an account but NO loan of any kind
+-- B4. EXCEPT --- Customers with an account but NO loan of any kind
+SELECT customer_id FROM accounts
+EXCEPT
+SELECT customer_id FROM loans;
+
+-- B5. EXCEPT --- Branch cities with branches but NO customers living there
+SELECT city FROM branches
+EXCEPT
+SELECT city FROM customers;
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION C: SUBQUERIES
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- C1. Non-correlated Subquery --- Customers with above-average credit score
+SELECT first_name || ' ' || last_name AS customer_name, credit_score, city
+FROM   customers
+WHERE  credit_score > (SELECT AVG(credit_score) FROM customers)
+ORDER  BY credit_score DESC;
+
+-- C2. Non-correlated Subquery --- Accounts with the highest balance per type
+SELECT a.account_number, at.type_name, a.balance,
+       c.first_name || ' ' || c.last_name AS owner
+FROM   accounts a
+JOIN   account_types at ON at.account_type_id = a.account_type_id
+JOIN   customers      c  ON c.customer_id     = a.customer_id
+WHERE  (a.account_type_id, a.balance) IN (
+           SELECT account_type_id, MAX(balance)
+           FROM   accounts
+           GROUP  BY account_type_id
+       )
+ORDER  BY a.balance DESC;
+
+-- C3. Correlated Subquery --- Customers whose total loan outstanding > account balance
+-- C3. Correlated Subquery --- Customers whose total loan outstanding > account balance
+SELECT c.first_name || ' ' || c.last_name AS customer_name,
+       c.credit_score,
+       (SELECT SUM(l.outstanding) FROM loans l
+        WHERE  l.customer_id = c.customer_id AND l.status = 'ACTIVE') AS total_outstanding,
+       (SELECT SUM(a.balance)    FROM accounts a
+        WHERE  a.customer_id = c.customer_id) AS total_balance
+FROM   customers c
+WHERE  COALESCE((SELECT SUM(l.outstanding) FROM loans l
+                 WHERE  l.customer_id = c.customer_id AND l.status = 'ACTIVE'), 0)
+     > COALESCE((SELECT SUM(a.balance)    FROM accounts a
+                 WHERE  a.customer_id = c.customer_id), 0);
+
+-- C4. Correlated Subquery --- Accounts with NO transactions in last 90 days (dormancy check)
+-- C4. Correlated Subquery --- Accounts with NO transactions in last 90 days (dormancy check)
+SELECT a.account_number, c.first_name || ' ' || c.last_name AS owner,
+       a.balance, a.last_txn_date
+FROM   accounts a
+JOIN   customers c ON c.customer_id = a.customer_id
+WHERE  NOT EXISTS (
+           SELECT 1 FROM transactions t
+           WHERE  t.account_id = a.account_id
+           AND    t.txn_date  >= CURRENT_DATE - INTERVAL '90 days'
+       )
+AND    a.status = 'ACTIVE';
+
+-- C5. Subquery in FROM --- Branch loan-to-deposit ratio
+-- C5. Subquery in FROM --- Branch loan-to-deposit ratio
+SELECT bp.branch_name, bp.city,
+       bp.total_deposits,
+       bp.total_loan_amount,
+       ROUND((bp.total_loan_amount / NULLIF(bp.total_deposits,0) * 100)::NUMERIC, 2) AS ldr_pct
+FROM   vw_branch_performance bp
+ORDER  BY ldr_pct DESC NULLS LAST;
+
+-- C6. Non-correlated --- Top 3 transaction amounts ever recorded
+-- C6. Non-correlated --- Top 3 transaction amounts ever recorded
+SELECT * FROM (
+    SELECT t.reference_no, t.txn_type, t.amount,
+           a.account_number, t.txn_date,
+           RANK() OVER (ORDER BY t.amount DESC) AS amount_rank
+    FROM   transactions t
+    JOIN   accounts a ON a.account_id = t.account_id
+) ranked
+WHERE amount_rank <= 3;
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION D: AGGREGATE / ANALYTICAL QUERIES
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- D1. Branch-wise total deposits, loans, and customer count
+-- C3. Correlated Subquery --- Customers whose total loan outstanding > account balance
+SELECT b.branch_name, b.city,
+       COUNT(DISTINCT a.customer_id) AS customers,
+       COUNT(DISTINCT a.account_id)  AS accounts,
+       COALESCE(SUM(a.balance), 0)   AS total_deposits,
+       COUNT(DISTINCT l.loan_id)     AS loan_count,
+       COALESCE(SUM(l.outstanding), 0) AS loan_book
+FROM   branches b
+LEFT JOIN accounts a ON a.branch_id = b.branch_id AND a.status = 'ACTIVE'
+LEFT JOIN loans    l ON l.branch_id = b.branch_id AND l.status = 'ACTIVE'
+GROUP  BY b.branch_name, b.city
+ORDER  BY total_deposits DESC;
+
+-- D2. Monthly transaction volume and value for current year
+-- D2. Monthly transaction volume and value for current year
+SELECT EXTRACT(MONTH FROM txn_date)::INT AS month,
+       txn_type,
+       COUNT(*)                           AS txn_count,
+       SUM(amount)                        AS total_value,
+       AVG(amount)                        AS avg_value,
+       MAX(amount)                        AS max_single_txn
+FROM   transactions
+WHERE  EXTRACT(YEAR FROM txn_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+GROUP  BY EXTRACT(MONTH FROM txn_date), txn_type
+ORDER  BY month, txn_type;
+
+-- D3. Loan repayment health --- paid vs outstanding per loan
+SELECT l.loan_id,
+       c.first_name || ' ' || c.last_name  AS borrower,
+       lt.type_name                        AS loan_type,
+       l.principal_amount,
+       l.outstanding,
+       l.principal_amount - l.outstanding  AS amount_repaid,
+       ROUND(((l.principal_amount - l.outstanding) / l.principal_amount * 100)::NUMERIC, 1)
+           AS repaid_pct
+FROM   loans     l
+JOIN   customers  c  ON c.customer_id  = l.customer_id
+JOIN   loan_types lt ON lt.loan_type_id = l.loan_type_id
+WHERE  l.status IN ('ACTIVE','CLOSED')
+ORDER  BY repaid_pct DESC;
+-- ============================================================
+--  CORE BANKING SYSTEM (CBS) --- PHASE IV: PL/pgSQL MODULE
+--  Includes Composite Types, Functions, Procedures, and Triggers
+-- ============================================================
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION 1: COMPOSITE TYPES
+--  Oracle Object Types become PostgreSQL composite types.
+--  Member functions become standalone functions instead.
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- 1A. Transaction Receipt composite type
+DROP TYPE IF EXISTS txn_receipt_t CASCADE;
+CREATE TYPE txn_receipt_t AS (
+    reference_no    VARCHAR(30),
+    account_number  VARCHAR(20),
+    txn_type        VARCHAR(20),
+    amount          NUMERIC(14,2),
+    balance_after   NUMERIC(14,2),
+    txn_timestamp   TIMESTAMP,
+    status          VARCHAR(15)
+);
+
+-- Equivalent of the Oracle MEMBER FUNCTION to_string()
+CREATE OR REPLACE FUNCTION txn_receipt_to_string(r txn_receipt_t)
+RETURNS TEXT
+LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN 'Receipt[' || r.reference_no || '] ' ||
+           r.txn_type || ' PKR ' || TO_CHAR(r.amount, 'FM9,999,999.00') ||
+           ' | Bal: PKR ' || TO_CHAR(r.balance_after, 'FM9,999,999.00') ||
+           ' | ' || TO_CHAR(r.txn_timestamp, 'DD-Mon-YYYY HH24:MI:SS');
+END;
+$$;
+
+-- 1B. EMI Schedule row composite type
+DROP TYPE IF EXISTS emi_row_t CASCADE;
+CREATE TYPE emi_row_t AS (
+    installment_no       INT,
+    due_date             DATE,
+    emi_amount           NUMERIC(12,2),
+    principal_component  NUMERIC(12,2),
+    interest_component   NUMERIC(12,2),
+    balance_remaining    NUMERIC(14,2)
+);
+-- emi_schedule_t (a TABLE OF emi_row_t) is expressed via RETURNS TABLE or SETOF emi_row_t
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION 2: FUNCTIONS & PROCEDURES
+--  Oracle Packages have no direct equivalent in PostgreSQL.
+--  We use a dedicated schema per package to group related routines.
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- Create schemas to mirror Oracle package namespaces
+CREATE SCHEMA IF NOT EXISTS pkg_account_ops;
+CREATE SCHEMA IF NOT EXISTS pkg_loan_mgmt;
+CREATE SCHEMA IF NOT EXISTS pkg_reports;
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SCHEMA pkg_account_ops --- Core account operations
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- ------ next_reference ------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pkg_account_ops.next_reference()
+RETURNS TEXT
+LANGUAGE plpgsql AS $$
+BEGIN
+    -- Oracle: 'REF' || TO_CHAR(SYSTIMESTAMP,'YYYYMMDDHH24MISSFF3')
+    RETURN 'REF' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYYMMDDHH24MISSMS');
+END;
+$$;
+
+-- ------ get_balance ---------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pkg_account_ops.get_balance(p_account_id INT)
+RETURNS NUMERIC
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_bal NUMERIC;
+BEGIN
+    SELECT balance INTO v_bal FROM accounts WHERE account_id = p_account_id;
+    RETURN v_bal;
+END;
+$$;
+
+-- ------ Private helper: validate_account ---------------------------------------------------------------------------
+--  Returns a record of accounts for the given id (row-locked).
+--  Raises an exception if the account is FROZEN/CLOSED or not found.
+CREATE OR REPLACE FUNCTION pkg_account_ops.validate_account(p_account_id INT)
+RETURNS accounts   -- returns the full accounts row
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_acc accounts%ROWTYPE;
+BEGIN
+    SELECT * INTO v_acc FROM accounts WHERE account_id = p_account_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Account ID % not found.', p_account_id
+            USING ERRCODE = 'P0010';
+    END IF;
+    IF v_acc.status IN ('FROZEN', 'CLOSED') THEN
+        RAISE EXCEPTION 'Account % is %.', v_acc.account_number, v_acc.status
+            USING ERRCODE = 'P0002';
+    END IF;
+    RETURN v_acc;
+END;
+$$;
+
+-- ------ deposit ---------------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pkg_account_ops.deposit(
+    p_account_id  INT,
+    p_amount      NUMERIC,
+    p_description TEXT    DEFAULT NULL,
+    p_channel     TEXT    DEFAULT 'BRANCH',
+    p_emp_id      INT     DEFAULT NULL
+)
+RETURNS txn_receipt_t
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_acc     accounts%ROWTYPE;
+    v_ref     TEXT;
+    v_new_bal NUMERIC(14,2);
+    v_receipt txn_receipt_t;
+BEGIN
+    IF p_amount <= 0 THEN
+        RAISE EXCEPTION 'Deposit amount must be positive.'
+            USING ERRCODE = 'P0003';
+    END IF;
+
+    v_acc     := pkg_account_ops.validate_account(p_account_id);
+    v_ref     := pkg_account_ops.next_reference();
+    v_new_bal := v_acc.balance + p_amount;
+
+    UPDATE accounts
+    SET    balance = v_new_bal, last_txn_date = CURRENT_DATE
+    WHERE  account_id = p_account_id;
+
+    INSERT INTO transactions
+        (account_id, txn_type, amount, balance_after, reference_no,
+         description, channel, txn_date, performed_by, status)
+    VALUES
+        (p_account_id, 'DEPOSIT', p_amount, v_new_bal, v_ref,
+         COALESCE(p_description, 'Cash Deposit'), p_channel,
+         CURRENT_DATE, p_emp_id, 'SUCCESS');
+
+    v_receipt := ROW(v_ref, v_acc.account_number, 'DEPOSIT',
+                     p_amount, v_new_bal, CURRENT_TIMESTAMP, 'SUCCESS')::txn_receipt_t;
+    RETURN v_receipt;
+END;
+$$;
+
+-- ------ withdraw ------------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pkg_account_ops.withdraw(
+    p_account_id  INT,
+    p_amount      NUMERIC,
+    p_description TEXT  DEFAULT NULL,
+    p_channel     TEXT  DEFAULT 'ATM'
+)
+RETURNS txn_receipt_t
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_acc     accounts%ROWTYPE;
+    v_ref     TEXT;
+    v_new_bal NUMERIC(14,2);
+    v_receipt txn_receipt_t;
+BEGIN
+    IF p_amount <= 0 THEN
+        RAISE EXCEPTION 'Withdrawal amount must be positive.'
+            USING ERRCODE = 'P0003';
+    END IF;
+
+    v_acc := pkg_account_ops.validate_account(p_account_id);
+
+    IF v_acc.balance < p_amount THEN
+        RAISE EXCEPTION 'Insufficient funds. Balance: %, Requested: %',
+                        v_acc.balance, p_amount
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    v_ref     := pkg_account_ops.next_reference();
+    v_new_bal := v_acc.balance - p_amount;
+
+    UPDATE accounts
+    SET    balance = v_new_bal, last_txn_date = CURRENT_DATE
+    WHERE  account_id = p_account_id;
+
+    INSERT INTO transactions
+        (account_id, txn_type, amount, balance_after, reference_no,
+         description, channel, txn_date, status)
+    VALUES
+        (p_account_id, 'WITHDRAWAL', p_amount, v_new_bal, v_ref,
+         COALESCE(p_description, 'Cash Withdrawal'), p_channel,
+         CURRENT_DATE, 'SUCCESS');
+
+    v_receipt := ROW(v_ref, v_acc.account_number, 'WITHDRAWAL',
+                     p_amount, v_new_bal, CURRENT_TIMESTAMP, 'SUCCESS')::txn_receipt_t;
+    RETURN v_receipt;
+END;
+$$;
+
+-- ------ transfer ------------------------------------------------------------------------------------------------------------------------------------------------------
+--  Oracle PROCEDURE with OUT --- PostgreSQL PROCEDURE (or FUNCTION returning void/composite)
+CREATE OR REPLACE PROCEDURE pkg_account_ops.transfer(
+    p_from_account_id INT,
+    p_to_account_id   INT,
+    p_amount          NUMERIC,
+    p_description     TEXT DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_from accounts%ROWTYPE;
+    v_to   accounts%ROWTYPE;
+    v_ref  TEXT;
+BEGIN
+    IF p_amount <= 0 THEN
+        RAISE EXCEPTION 'Transfer amount must be positive.'
+            USING ERRCODE = 'P0003';
+    END IF;
+
+    v_from := pkg_account_ops.validate_account(p_from_account_id);
+    v_to   := pkg_account_ops.validate_account(p_to_account_id);
+
+    IF v_from.balance < p_amount THEN
+        RAISE EXCEPTION 'Insufficient funds for transfer.'
+            USING ERRCODE = 'P0001';
+    END IF;
+
+    v_ref := pkg_account_ops.next_reference();
+
+    UPDATE accounts SET balance = balance - p_amount, last_txn_date = CURRENT_DATE
+    WHERE  account_id = p_from_account_id;
+
+    UPDATE accounts SET balance = balance + p_amount, last_txn_date = CURRENT_DATE
+    WHERE  account_id = p_to_account_id;
+
+    INSERT INTO transactions
+        (account_id, txn_type, amount, balance_after, reference_no, description, channel, status)
+    VALUES
+        (p_from_account_id, 'TRANSFER_OUT', p_amount,
+         v_from.balance - p_amount, v_ref,
+         COALESCE(p_description, 'Transfer to ' || v_to.account_number),
+         'INTERNET', 'SUCCESS');
+
+    INSERT INTO transactions
+        (account_id, txn_type, amount, balance_after, reference_no, description, channel, status)
+    VALUES
+        (p_to_account_id, 'TRANSFER_IN', p_amount,
+         v_to.balance + p_amount, v_ref,
+         COALESCE(p_description, 'Transfer from ' || v_from.account_number),
+         'INTERNET', 'SUCCESS');
+END;
+$$;
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SCHEMA pkg_loan_mgmt --- Loan lifecycle & EMI calculations
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- ------ calc_emi ------------------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pkg_loan_mgmt.calc_emi(
+    p_principal   NUMERIC,
+    p_annual_rate NUMERIC,
+    p_months      INT
+)
+RETURNS NUMERIC
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_r NUMERIC;
+BEGIN
+    v_r := p_annual_rate / 12.0 / 100.0;
+    RETURN ROUND(
+        (p_principal * v_r * POWER(1 + v_r, p_months)
+         / (POWER(1 + v_r, p_months) - 1))::NUMERIC,
+        2
+    );
+END;
+$$;
+
+-- ------ generate_schedule ---------------------------------------------------------------------------------------------------------------------------
+--  Oracle: PIPELINED FUNCTION returning TABLE type
+--  PostgreSQL: RETURNS TABLE with RETURN NEXT
+CREATE OR REPLACE FUNCTION pkg_loan_mgmt.generate_schedule(
+    p_principal   NUMERIC,
+    p_annual_rate NUMERIC,
+    p_months      INT,
+    p_start_date  DATE DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (
+    installment_no      INT,
+    due_date            DATE,
+    emi_amount          NUMERIC(12,2),
+    principal_component NUMERIC(12,2),
+    interest_component  NUMERIC(12,2),
+    balance_remaining   NUMERIC(14,2)
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_emi       NUMERIC := pkg_loan_mgmt.calc_emi(p_principal, p_annual_rate, p_months);
+    v_balance   NUMERIC := p_principal;
+    v_r         NUMERIC := p_annual_rate / 12.0 / 100.0;
+    v_interest  NUMERIC;
+    v_principal NUMERIC;
+    v_due       DATE    := p_start_date + INTERVAL '1 month';
+    i           INT;
+BEGIN
+    FOR i IN 1 .. p_months LOOP
+        v_interest  := ROUND((v_balance * v_r)::NUMERIC, 2);
+        v_principal := v_emi - v_interest;
+
+        IF i = p_months THEN          -- last-instalment rounding fix
+            v_principal := v_balance;
+            v_emi       := v_balance + v_interest;
+        END IF;
+
+        v_balance := v_balance - v_principal;
+
+        installment_no      := i;
+        due_date            := v_due;
+        emi_amount          := ROUND(v_emi::NUMERIC, 2);
+        principal_component := ROUND(v_principal::NUMERIC, 2);
+        interest_component  := ROUND(v_interest::NUMERIC, 2);
+        balance_remaining   := ROUND(GREATEST(v_balance, 0)::NUMERIC, 2);
+
+        RETURN NEXT;
+        -- Oracle ADD_MONTHS(d,1) --- d + INTERVAL '1 month'
+        v_due := v_due + INTERVAL '1 month';
+    END LOOP;
+END;
+$$;
+
+-- ------ approve_loan ------------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE pkg_loan_mgmt.approve_loan(
+    p_loan_id    INT,
+    p_officer_id INT,
+    p_rate       NUMERIC DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_loan  loans%ROWTYPE;
+    v_ltype loan_types%ROWTYPE;
+    v_rate  NUMERIC;
+BEGIN
+    SELECT * INTO v_loan  FROM loans      WHERE loan_id      = p_loan_id      FOR UPDATE;
+    SELECT * INTO v_ltype FROM loan_types WHERE loan_type_id = v_loan.loan_type_id;
+
+    IF v_loan.status <> 'PENDING' THEN
+        RAISE EXCEPTION 'Loan % is not in PENDING status.', p_loan_id
+            USING ERRCODE = 'P0020';
+    END IF;
+
+    v_rate := COALESCE(p_rate, v_ltype.base_rate);
+
+    UPDATE loans SET
+        status            = 'APPROVED',
+        approved_by       = p_officer_id,
+        interest_rate     = v_rate,
+        emi_amount        = pkg_loan_mgmt.calc_emi(v_loan.principal_amount, v_rate, v_loan.tenure_months),
+        disbursement_date = CURRENT_DATE,
+        -- Oracle ADD_MONTHS --- interval arithmetic
+        maturity_date     = CURRENT_DATE + (v_loan.tenure_months || ' months')::INTERVAL,
+        outstanding       = v_loan.principal_amount
+    WHERE loan_id = p_loan_id;
+
+    RAISE NOTICE 'Loan % approved at %%% by officer %', p_loan_id, v_rate, p_officer_id;
+END;
+$$;
+
+-- ------ record_payment ------------------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE pkg_loan_mgmt.record_payment(
+    p_loan_id INT,
+    p_amount  NUMERIC,
+    p_mode    TEXT DEFAULT 'ACCOUNT_DEBIT'
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_loan      loans%ROWTYPE;
+    v_monthly_r NUMERIC;
+    v_interest  NUMERIC;
+    v_principal NUMERIC;
+BEGIN
+    SELECT * INTO v_loan FROM loans WHERE loan_id = p_loan_id FOR UPDATE;
+
+    IF v_loan.status NOT IN ('ACTIVE', 'APPROVED') THEN
+        RAISE EXCEPTION 'Loan % is not active.', p_loan_id
+            USING ERRCODE = 'P0021';
+    END IF;
+
+    v_monthly_r := v_loan.interest_rate / 12.0 / 100.0;
+    v_interest  := ROUND((v_loan.outstanding * v_monthly_r)::NUMERIC, 2);
+    v_principal := LEAST(p_amount - v_interest, v_loan.outstanding);
+
+    INSERT INTO loan_payments
+        (loan_id, payment_date, amount_paid, principal_component,
+         interest_component, balance_remaining, payment_mode, status)
+    VALUES
+        (p_loan_id, CURRENT_DATE, p_amount, v_principal, v_interest,
+         GREATEST(v_loan.outstanding - v_principal, 0), p_mode, 'SUCCESS');
+
+    UPDATE loans SET
+        outstanding = GREATEST(outstanding - v_principal, 0),
+        status      = CASE WHEN outstanding - v_principal <= 0 THEN 'CLOSED' ELSE status END
+    WHERE loan_id = p_loan_id;
+END;
+$$;
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SCHEMA pkg_reports --- Branch/customer analytics
+--  Oracle used DBMS_OUTPUT.PUT_LINE for printing.
+--  In PostgreSQL we use RAISE NOTICE (visible in psql with \set VERBOSITY verbose
+--  or captured server-side). For real apps, return result sets instead.
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- ------ rpt_overdue_loans ---------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE pkg_reports.rpt_overdue_loans()
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_count INT := 0;
+    r RECORD;
+BEGIN
+    RAISE NOTICE '=== OVERDUE LOAN REPORT (%) ===', TO_CHAR(CURRENT_DATE, 'DD-Mon-YYYY');
+
+    FOR r IN
+        SELECT l.loan_id,
+               c.first_name || ' ' || c.last_name  AS borrower,
+               c.phone,
+               lt.type_name                        AS loan_type,
+               l.emi_amount,
+               l.outstanding,
+               l.maturity_date
+        FROM   loans l
+        JOIN   customers  c  ON c.customer_id  = l.customer_id
+        JOIN   loan_types lt ON lt.loan_type_id = l.loan_type_id
+        WHERE  l.status = 'ACTIVE'
+        AND    l.maturity_date < CURRENT_DATE
+        ORDER  BY l.outstanding DESC
+    LOOP
+        v_count := v_count + 1;
+        RAISE NOTICE '% | % | % | %',
+            r.loan_id, r.borrower, r.loan_type, r.outstanding;
+    END LOOP;
+
+    RAISE NOTICE 'Total records: %', v_count;
+END;
+$$;
+
+-- ------ rpt_account_statement ---------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE pkg_reports.rpt_account_statement(
+    p_account_id INT,
+    p_from_date  DATE DEFAULT (CURRENT_DATE - INTERVAL '1 month')::DATE,
+    p_to_date    DATE DEFAULT CURRENT_DATE
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_acc       accounts%ROWTYPE;
+    v_cust      customers%ROWTYPE;
+    v_total_cr  NUMERIC := 0;
+    v_total_dr  NUMERIC := 0;
+    r           RECORD;
+BEGIN
+    SELECT * INTO v_acc  FROM accounts  WHERE account_id = p_account_id;
+    SELECT * INTO v_cust FROM customers WHERE customer_id = v_acc.customer_id;
+
+    RAISE NOTICE '=== ACCOUNT STATEMENT ===';
+    RAISE NOTICE 'Account : %', v_acc.account_number;
+    RAISE NOTICE 'Customer: % %', v_cust.first_name, v_cust.last_name;
+    RAISE NOTICE 'Period  : % to %',
+        TO_CHAR(p_from_date,'DD-Mon-YYYY'), TO_CHAR(p_to_date,'DD-Mon-YYYY');
+
+    FOR r IN
+        SELECT txn_date, reference_no, txn_type, description, amount, balance_after, channel
+        FROM   transactions
+        WHERE  account_id = p_account_id
+        AND    txn_date BETWEEN p_from_date AND p_to_date
+        ORDER  BY txn_date
+    LOOP
+        IF r.txn_type IN ('DEPOSIT','TRANSFER_IN','INTEREST') THEN
+            v_total_cr := v_total_cr + r.amount;
+        ELSE
+            v_total_dr := v_total_dr + r.amount;
+        END IF;
+        RAISE NOTICE '% | % | % | % | % | %',
+            TO_CHAR(r.txn_date,'DD/MM/YY'), r.reference_no, r.txn_type,
+            r.amount, r.balance_after, r.channel;
+    END LOOP;
+
+    RAISE NOTICE 'Total Credits: PKR %', TO_CHAR(v_total_cr,'FM9,999,999.00');
+    RAISE NOTICE 'Total Debits : PKR %', TO_CHAR(v_total_dr,'FM9,999,999.00');
+    RAISE NOTICE 'Closing Bal  : PKR %', TO_CHAR(v_acc.balance,'FM9,999,999.00');
+END;
+$$;
+
+-- ------ rpt_branch_summary ------------------------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE pkg_reports.rpt_branch_summary()
+LANGUAGE plpgsql AS $$
+DECLARE
+    r RECORD;
+BEGIN
+    RAISE NOTICE '=== BRANCH PERFORMANCE SUMMARY ===';
+    FOR r IN
+        SELECT branch_name, city, total_accounts, total_deposits,
+               total_loans, total_loan_amount, staff_count
+        FROM   vw_branch_performance
+        ORDER  BY total_deposits DESC NULLS LAST
+    LOOP
+        RAISE NOTICE '% | % | % accounts | %M deposits | % loans | % staff',
+            r.branch_name, r.city, COALESCE(r.total_accounts,0),
+            TO_CHAR(COALESCE(r.total_deposits,0)/1000000.0,'FM999.99'),
+            COALESCE(r.total_loans,0), COALESCE(r.staff_count,0);
+    END LOOP;
+END;
+$$;
+
+-- ------ rpt_high_value_customers ------------------------------------------------------------------------------------------------------
+CREATE OR REPLACE PROCEDURE pkg_reports.rpt_high_value_customers(
+    p_threshold NUMERIC DEFAULT 500000
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_count INT := 0;
+    r       RECORD;
+BEGIN
+    RAISE NOTICE '=== HIGH VALUE CUSTOMERS (Balance >= PKR %) ===',
+        TO_CHAR(p_threshold,'FM9,999,999');
+
+    FOR r IN
+        SELECT customer_name, cnic, credit_score, account_type, balance, branch_name
+        FROM   vw_customer_portfolio
+        WHERE  balance >= p_threshold
+        ORDER  BY balance DESC
+    LOOP
+        v_count := v_count + 1;
+        RAISE NOTICE '%. % | % | PKR % | Score: %',
+            v_count, r.customer_name, r.account_type,
+            TO_CHAR(r.balance,'FM9,999,999'), r.credit_score;
+    END LOOP;
+
+    RAISE NOTICE 'Total: % customer(s).', v_count;
+END;
+$$;
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION 3: TRIGGERS
+--  Oracle: CREATE OR REPLACE TRIGGER ... :NEW / :OLD
+--  PostgreSQL: Triggers need a TRIGGER FUNCTION returning TRIGGER,
+--              then CREATE TRIGGER separately. Use NEW/OLD (no colon).
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- T1. BEFORE INSERT on transactions --- Validate amount & auto-set reference/date
+CREATE OR REPLACE FUNCTION trg_fn_txn_before_insert()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.reference_no IS NULL THEN
+        NEW.reference_no := 'REF' || TO_CHAR(CURRENT_TIMESTAMP, 'YYYYMMDDHH24MISSMS');
+    END IF;
+
+    IF NEW.amount <= 0 THEN
+        RAISE EXCEPTION 'Transaction amount must be > 0. Got: %', NEW.amount
+            USING ERRCODE = 'P0030';
+    END IF;
+
+    IF NEW.txn_date IS NULL THEN
+        NEW.txn_date := CURRENT_DATE;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_txn_before_insert ON transactions;
+CREATE TRIGGER trg_txn_before_insert
+BEFORE INSERT ON transactions
+FOR EACH ROW EXECUTE FUNCTION trg_fn_txn_before_insert();
+
+
+-- T2. AFTER INSERT on transactions --- Sync account balance and last_txn_date
+CREATE OR REPLACE FUNCTION trg_fn_txn_after_insert()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    UPDATE accounts
+    SET    balance       = NEW.balance_after,
+           last_txn_date = NEW.txn_date
+    WHERE  account_id   = NEW.account_id;
+    RETURN NULL;   -- AFTER triggers on row-level should return NULL
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_txn_after_insert ON transactions;
+CREATE TRIGGER trg_txn_after_insert
+AFTER INSERT ON transactions
+FOR EACH ROW EXECUTE FUNCTION trg_fn_txn_after_insert();
+
+
+-- T3. AFTER UPDATE on accounts --- Write to audit_log
+CREATE OR REPLACE FUNCTION trg_fn_accounts_audit()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.balance <> NEW.balance OR OLD.status <> NEW.status THEN
+        INSERT INTO audit_log
+            (table_name, operation, record_id, changed_by,
+             change_timestamp, old_value, new_value, remarks)
+        VALUES
+            ('ACCOUNTS', 'UPDATE', OLD.account_id, CURRENT_USER,
+             CURRENT_TIMESTAMP,
+             'Balance=' || OLD.balance || '; Status=' || OLD.status,
+             'Balance=' || NEW.balance || '; Status=' || NEW.status,
+             'Balance delta: ' || (NEW.balance - OLD.balance));
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_accounts_audit ON accounts;
+CREATE TRIGGER trg_accounts_audit
+AFTER UPDATE ON accounts
+FOR EACH ROW EXECUTE FUNCTION trg_fn_accounts_audit();
+
+
+-- T4. BEFORE DELETE on customers --- Prevent deletion if active accounts exist
+CREATE OR REPLACE FUNCTION trg_fn_customers_no_delete()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_count INT;
+BEGIN
+    SELECT COUNT(*) INTO v_count
+    FROM   accounts
+    WHERE  customer_id = OLD.customer_id
+    AND    status      = 'ACTIVE';
+
+    IF v_count > 0 THEN
+        RAISE EXCEPTION 'Cannot delete customer % % --- % active account(s) exist.',
+                        OLD.first_name, OLD.last_name, v_count
+            USING ERRCODE = 'P0040';
+    END IF;
+
+    RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_customers_no_delete ON customers;
+CREATE TRIGGER trg_customers_no_delete
+BEFORE DELETE ON customers
+FOR EACH ROW EXECUTE FUNCTION trg_fn_customers_no_delete();
+
+
+-- T5. AFTER INSERT on loans --- Log new loan application to audit
+CREATE OR REPLACE FUNCTION trg_fn_loans_audit_insert()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    INSERT INTO audit_log
+        (table_name, operation, record_id, changed_by,
+         change_timestamp, new_value, remarks)
+    VALUES
+        ('LOANS', 'INSERT', NEW.loan_id, CURRENT_USER,
+         CURRENT_TIMESTAMP,
+         'Amount=' || NEW.principal_amount ||
+         '; Type=' || NEW.loan_type_id ||
+         '; Status=' || NEW.status,
+         'New loan application submitted');
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_loans_audit_insert ON loans;
+CREATE TRIGGER trg_loans_audit_insert
+AFTER INSERT ON loans
+FOR EACH ROW EXECUTE FUNCTION trg_fn_loans_audit_insert();
+
+
+-- T6. AFTER UPDATE OF status on loans --- Alert on status change + audit
+CREATE OR REPLACE FUNCTION trg_fn_loans_status_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.status <> NEW.status THEN
+        INSERT INTO audit_log
+            (table_name, operation, record_id, changed_by,
+             change_timestamp, old_value, new_value, remarks)
+        VALUES
+            ('LOANS', 'UPDATE', OLD.loan_id, CURRENT_USER,
+             CURRENT_TIMESTAMP,
+             'Status=' || OLD.status,
+             'Status=' || NEW.status,
+             'Loan status changed from ' || OLD.status || ' to ' || NEW.status);
+
+        IF NEW.status = 'CLOSED' THEN
+            RAISE NOTICE 'LOAN CLOSED: ID=% | Customer=%', OLD.loan_id, OLD.customer_id;
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_loans_status_change ON loans;
+CREATE TRIGGER trg_loans_status_change
+AFTER UPDATE OF status ON loans
+FOR EACH ROW EXECUTE FUNCTION trg_fn_loans_status_change();
+
+
+-- T7. BEFORE INSERT on customers --- Enforce minimum age (18+)
+CREATE OR REPLACE FUNCTION trg_fn_customers_age_check()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    -- Oracle MONTHS_BETWEEN(SYSDATE, dob)/12 --- AGE() in PostgreSQL
+    v_age NUMERIC;
+BEGIN
+    v_age := EXTRACT(YEAR FROM AGE(CURRENT_DATE, NEW.date_of_birth))
+           + EXTRACT(MONTH FROM AGE(CURRENT_DATE, NEW.date_of_birth)) / 12.0;
+
+    IF v_age < 18 THEN
+        RAISE EXCEPTION 'Customer must be at least 18 years old. Calculated age: % years.',
+                        FLOOR(v_age)
+            USING ERRCODE = 'P0050';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_customers_age_check ON customers;
+CREATE TRIGGER trg_customers_age_check
+BEFORE INSERT ON customers
+FOR EACH ROW EXECUTE FUNCTION trg_fn_customers_age_check();
+
+
+-- T8. BEFORE INSERT on accounts --- Auto-generate account number if NULL
+--  Oracle: :NEW.account_number := 'PK36CBS0' || branch_code || LPAD(acc_seq.NEXTVAL,6,'0')
+--  PostgreSQL: acc_seq must be created with CREATE SEQUENCE acc_seq; beforehand
+CREATE OR REPLACE FUNCTION trg_fn_accounts_acc_number()
+RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_branch_code TEXT;
+BEGIN
+    IF NEW.account_number IS NULL THEN
+        SELECT branch_code INTO v_branch_code
+        FROM   branches WHERE branch_id = NEW.branch_id;
+
+        NEW.account_number := 'PK36CBS0' || v_branch_code ||
+                              LPAD(NEXTVAL('acc_seq')::TEXT, 6, '0');
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_accounts_acc_number ON accounts;
+CREATE TRIGGER trg_accounts_acc_number
+BEFORE INSERT ON accounts
+FOR EACH ROW EXECUTE FUNCTION trg_fn_accounts_acc_number();
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION 4: CURSOR DEMOS (as standalone DO blocks)
+--  Oracle anonymous blocks with DECLARE...BEGIN...END are
+--  written as DO $$ ... $$ in PostgreSQL.
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- Demo 1: FOR loop --- identify and mark dormant accounts
+DO $$
+DECLARE
+    v_dormancy_days CONSTANT INT := 90;
+    v_count INT := 0;
+    r RECORD;
+BEGIN
+    RAISE NOTICE '=== DORMANT ACCOUNT CHECK ===';
+
+    FOR r IN
+        SELECT a.account_number, a.balance, a.last_txn_date,
+               c.first_name || ' ' || c.last_name AS customer
+        FROM   accounts  a
+        JOIN   customers c ON c.customer_id = a.customer_id
+        WHERE  a.status = 'ACTIVE'
+        AND    (a.last_txn_date IS NULL
+                OR a.last_txn_date < CURRENT_DATE - (v_dormancy_days || ' days')::INTERVAL)
+        ORDER  BY a.last_txn_date NULLS FIRST
+    LOOP
+        v_count := v_count + 1;
+        RAISE NOTICE '%. % | % | Last txn: % | Bal: %',
+            v_count, r.account_number, r.customer,
+            COALESCE(TO_CHAR(r.last_txn_date,'DD-Mon-YYYY'),'NEVER'),
+            r.balance;
+
+        UPDATE accounts SET status = 'DORMANT'
+        WHERE  account_number = r.account_number;
+    END LOOP;
+
+    RAISE NOTICE 'Dormant accounts found: %', v_count;
+END;
+$$;
+
+
+-- Demo 2: Explicit cursor --- Monthly interest posting
+--  Oracle: CURSOR ... FOR UPDATE OF col; WHERE CURRENT OF cursor
+--  PostgreSQL: No CURRENT OF with named cursors (use PK-based UPDATE instead)
+DO $$
+DECLARE
+    c_savings CURSOR FOR
+        SELECT a.account_id, a.balance, at.interest_rate
+        FROM   accounts      a
+        JOIN   account_types at ON at.account_type_id = a.account_type_id
+        WHERE  a.status       = 'ACTIVE'
+        AND    at.interest_rate > 0;
+
+    v_row   RECORD;
+    v_intr  NUMERIC(12,2);
+    v_ref   TEXT;
+    v_total NUMERIC := 0;
+BEGIN
+    RAISE NOTICE '=== MONTHLY INTEREST POSTING --- % ===',
+        TO_CHAR(CURRENT_DATE,'Mon YYYY');
+
+    OPEN c_savings;
+    LOOP
+        FETCH c_savings INTO v_row;
+        EXIT WHEN NOT FOUND;
+
+        v_intr := ROUND((v_row.balance * (v_row.interest_rate / 12.0 / 100.0))::NUMERIC, 2);
+        v_ref  := 'INT' || TO_CHAR(CURRENT_DATE,'YYYYMM') ||
+                  LPAD(v_row.account_id::TEXT, 6, '0');
+
+        -- Oracle WHERE CURRENT OF --- explicit PK-based update
+        UPDATE accounts
+        SET    balance       = balance + v_intr,
+               last_txn_date = CURRENT_DATE
+        WHERE  account_id   = v_row.account_id;
+
+        INSERT INTO transactions
+            (account_id, txn_type, amount, balance_after, reference_no,
+             description, channel, status)
+        VALUES
+            (v_row.account_id, 'INTEREST', v_intr,
+             v_row.balance + v_intr, v_ref,
+             'Monthly profit credit ' || TO_CHAR(CURRENT_DATE,'Mon YYYY'),
+             'BRANCH', 'SUCCESS');
+
+        v_total := v_total + v_intr;
+        RAISE NOTICE 'Account % | Interest: PKR %', v_row.account_id, v_intr;
+    END LOOP;
+    CLOSE c_savings;
+
+    RAISE NOTICE 'Total interest posted: PKR %', TO_CHAR(v_total,'FM9,999,999.00');
+END;
+$$;
+
+
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- SECTION 5: USAGE EXAMPLES
+-- ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- Example: Deposit into account 1
+DO $$
+DECLARE
+    v_r txn_receipt_t;
+BEGIN
+    v_r := pkg_account_ops.deposit(1, 25000, 'Test deposit', 'MOBILE', NULL);
+    RAISE NOTICE '%', txn_receipt_to_string(v_r);
+END;
+$$;
+
+-- Example: Run branch summary report
+CALL pkg_reports.rpt_branch_summary();
+
+-- Example: Generate EMI schedule for PKR 1,000,000 at 15% for 24 months
+SELECT installment_no,
+       TO_CHAR(due_date,'DD-Mon-YYYY') AS due_date,
+       emi_amount, principal_component, interest_component, balance_remaining
+FROM   pkg_loan_mgmt.generate_schedule(1000000, 15, 24, CURRENT_DATE);
+
+-- Example: High-value customer report
+CALL pkg_reports.rpt_high_value_customers(100000);
+-- ============================================================
+--  CORE BANKING SYSTEM (CBS) --- FINAL ACADEMIC UPGRADES
+--  Phase III & IV: Performance and Advanced PL/SQL
+-- ============================================================
+
+-- 1. PERFORMANCE: Indexing (Phase III)
+-- Optimizing retrieval for frequently searched identity columns
+CREATE INDEX IF NOT EXISTS idx_customers_cnic ON customers(cnic);
+CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+
+-- 2. OBJECT-ORIENTED FEATURES: Custom Types (Phase IV)
+-- Demonstrating object-oriented database features
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'contact_info') THEN
+        CREATE TYPE contact_info AS (
+            email VARCHAR(100),
+            phone VARCHAR(20)
+        );
+    END IF;
+END $$;
+
+-- 3. VIEWS: Complex View (Technical Constraints)
+-- Simplifies data access for the front-end by joining 3 tables
+CREATE OR REPLACE VIEW v_customer_financial_summary AS
+SELECT 
+    c.customer_id,
+    c.first_name, 
+    c.last_name,
+    c.first_name || ' ' || c.last_name AS full_name,
+    c.cnic,
+    a.account_number,
+    a.balance,
+    a.status,
+    at.type_name,
+    (SELECT COUNT(*) FROM transactions t WHERE t.account_id = a.account_id) as total_txns
+FROM 
+    customers c
+JOIN 
+    accounts a ON c.customer_id = a.customer_id
+JOIN 
+    account_types at ON a.account_type_id = at.account_type_id;
+
+-- 4. PL/SQL: Explicit Cursor & Calculations (Phase IV)
+-- This function uses an explicit cursor to calculate total bank risk
+CREATE OR REPLACE FUNCTION calculate_bank_risk_metrics() 
+RETURNS TABLE(risk_level TEXT, total_exposure NUMERIC) AS $$
+DECLARE
+    curr_acc CURSOR FOR SELECT balance FROM accounts;
+    acc_bal NUMERIC;
+    high_risk_sum NUMERIC := 0;
+BEGIN
+    OPEN curr_acc;
+    LOOP
+        FETCH curr_acc INTO acc_bal;
+        EXIT WHEN NOT FOUND;
+        
+        -- Business logic: High exposure if balance > 500,000
+        IF acc_bal > 500000 THEN
+            high_risk_sum := high_risk_sum + acc_bal;
+        END IF;
+    END LOOP;
+    CLOSE curr_acc;
+    
+    risk_level := 'HIGH EXPOSURE';
+    total_exposure := high_risk_sum;
+    RETURN NEXT;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 5. SET OPERATIONS: UNION Example (Phase III)
+-- Used for internal reporting of all entities
+CREATE OR REPLACE VIEW v_all_system_entities AS
+SELECT first_name || ' ' || last_name as entity_name, 'CUSTOMER' as entity_type FROM customers
+UNION
+SELECT account_number::text, 'ACCOUNT' as entity_type FROM accounts;

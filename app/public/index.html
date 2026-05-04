@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CBS | Core Banking Solution</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="bg-dots"></div>
+    
+    <div class="app-wrapper">
+        <!-- Minimal Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon"></div>
+                <span>CORE BANK</span>
+            </div>
+            <nav>
+                <div class="nav-list">
+                    <div class="nav-item active" data-page="dashboard">
+                        <i class="fa-solid fa-layer-group"></i> Dashboard
+                    </div>
+                    <div class="nav-item" data-page="customers">
+                        <i class="fa-solid fa-users"></i> Customers
+                    </div>
+                    <div class="nav-item" data-page="accounts">
+                        <i class="fa-solid fa-wallet"></i> Accounts
+                    </div>
+                    <div class="nav-item" data-page="transactions">
+                        <i class="fa-solid fa-shuffle"></i> Activity
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Stage -->
+        <main class="main-stage">
+            <header class="top-bar">
+                <div class="header-info">
+                    <h1 id="page-title">Dashboard</h1>
+                </div>
+                <div class="actions">
+                    <div class="search-trigger" id="cmd-palette-btn">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <span>Search Customers...</span>
+                        <kbd>⌘K</kbd>
+                    </div>
+                    <button id="add-customer-btn" class="btn-black">
+                        <i class="fa-solid fa-plus"></i> New Enrollment
+                    </button>
+                </div>
+            </header>
+
+            <!-- Dashboard Bento View -->
+            <section id="dashboard-view" class="view">
+                <div class="bento-grid fade-up">
+                    <div class="bento-item large">
+                        <div class="stat-label">Net Liquidity Overview</div>
+                        <div class="stat-value" id="stat-deposits">...</div>
+                        <div class="chart-box">
+                            <canvas id="balanceChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div class="bento-item">
+                        <div class="stat-label">Stability Index</div>
+                        <div class="stat-value" style="color: var(--accent);">94%</div>
+                        <div class="stat-trend trend-up">
+                            <i class="fa-solid fa-shield-check"></i> Tier 1 Capital
+                        </div>
+                    </div>
+
+                    <div class="bento-item">
+                        <div class="stat-label">Active Members</div>
+                        <div class="stat-value" id="stat-customers">...</div>
+                    </div>
+
+                    <div class="bento-item wide" style="grid-row: span 2;">
+                        <div class="stat-label">System Audit Timeline</div>
+                        <div class="audit-timeline" id="audit-feed">
+                            <!-- Audit items will load here -->
+                        </div>
+                    </div>
+
+                    <div class="bento-item wide">
+                        <div class="stat-label">Recent Transactions</div>
+                        <div class="table-wrapper" style="margin-top: 1rem;">
+                            <table id="recent-txns-table">
+                                <thead>
+                                    <tr>
+                                        <th>Origin</th>
+                                        <th>Amount</th>
+                                        <th>State</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Customers View -->
+            <section id="customers-view" class="view hidden">
+                <div class="table-wrapper fade-up">
+                    <table id="customers-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>CNIC</th>
+                                <th>Phone</th>
+                                <th>City</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Accounts View -->
+            <section id="accounts-view" class="view hidden">
+                <div class="table-wrapper fade-up">
+                    <table id="accounts-table">
+                        <thead>
+                            <tr>
+                                <th>Acc No.</th>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Balance</th>
+                                <th>Status</th>
+                                <th>Operations</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Transactions View -->
+            <section id="transactions-view" class="view hidden">
+                <div class="table-wrapper fade-up">
+                    <table id="full-txns-table">
+                        <thead>
+                            <tr>
+                                <th>Ref</th>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modern Modal -->
+    <div id="customer-modal" class="modal-overlay">
+        <div class="modal-zinc">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                <h2>Onboard Customer</h2>
+                <span class="close" style="cursor: pointer; opacity: 0.5;">&times;</span>
+            </div>
+            <form id="add-customer-form">
+                <div class="grid-2">
+                    <div class="input-zinc">
+                        <label>First Name</label>
+                        <input type="text" name="first_name" required placeholder="John">
+                        <span class="error-txt" id="err-first_name"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>Last Name</label>
+                        <input type="text" name="last_name" required placeholder="Doe">
+                        <span class="error-txt" id="err-last_name"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>Identity (CNIC)</label>
+                        <input type="text" name="cnic" placeholder="00000-0000000-0" required>
+                        <span class="error-txt" id="err-cnic"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>Date of Birth</label>
+                        <input type="date" name="date_of_birth" required>
+                        <span class="error-txt" id="err-date_of_birth"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>Gender</label>
+                        <select name="gender" required>
+                            <option value="M">Male</option>
+                            <option value="F">Female</option>
+                            <option value="O">Other</option>
+                        </select>
+                        <span class="error-txt" id="err-gender"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>Email</label>
+                        <input type="email" name="email" required placeholder="name@domain.com">
+                        <span class="error-txt" id="err-email"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>Mobile</label>
+                        <input type="text" name="phone" required placeholder="+92 ...">
+                        <span class="error-txt" id="err-phone"></span>
+                    </div>
+                    <div class="input-zinc">
+                        <label>City</label>
+                        <input type="text" name="city" required placeholder="Faisalabad">
+                        <span class="error-txt" id="err-city"></span>
+                    </div>
+                    <div class="input-zinc grid-full">
+                        <label>Address</label>
+                        <textarea name="address" required placeholder="Residential address..." rows="3"></textarea>
+                        <span class="error-txt" id="err-address"></span>
+                    </div>
+                </div>
+                <button type="submit" class="btn-black" style="width: 100%; margin-top: 1rem; padding: 12px;">Confirm Enrollment</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Interactive Command Palette -->
+    <div id="cmd-palette" class="modal-overlay">
+        <div class="palette-container">
+            <div class="palette-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="palette-input" placeholder="Type name, CNIC or city to search..." autofocus>
+                <kbd>ESC</kbd>
+            </div>
+            <div class="palette-results" id="palette-results">
+                <div class="palette-hint">Search for customers, accounts, or system actions...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
