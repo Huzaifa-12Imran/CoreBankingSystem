@@ -142,20 +142,22 @@ app.put('/api/customers/:id', async (req, res) => {
 });
 
 app.delete('/api/customers/:id', async (req, res) => {
-  try {
-    const cust = await pool.query('SELECT first_name, last_name FROM customers WHERE customer_id = $1', [req.params.id]);
-    const name = cust.rows[0] ? `${cust.rows[0].first_name} ${cust.rows[0].last_name}` : 'Unknown';
-    
-    await pool.query('DELETE FROM customers WHERE customer_id = $1', [req.params.id]);
-    
-    // LOG ACTION
-    await pool.query(
-        'INSERT INTO audit_log (table_name, operation, record_id, changed_by, remarks) VALUES ($1, $2, $3, $4, $5)',
-        ['customers', 'DELETE', req.params.id, 'SYSTEM', `Customer record deleted: ${name}`]
-    );
-    
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    try {
+        const cust = await pool.query('SELECT first_name, last_name FROM customers WHERE customer_id = $1', [req.params.id]);
+        const name = cust.rows[0] ? `${cust.rows[0].first_name} ${cust.rows[0].last_name}` : 'Unknown';
+        
+        await pool.query('DELETE FROM customers WHERE customer_id = $1', [req.params.id]);
+        
+        await pool.query(
+            'INSERT INTO audit_log (table_name, operation, record_id, changed_by, remarks) VALUES ($1, $2, $3, $4, $5)',
+            ['customers', 'DELETE', req.params.id, 'SYSTEM', `Customer record deleted: ${name}`]
+        );
+        
+        res.status(200).json({ success: true, message: 'Customer deleted successfully' });
+    } catch (err) {
+        console.error('Delete error:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.get('/api/audit-logs', async (req, res) => {
