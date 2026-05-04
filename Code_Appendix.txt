@@ -1542,6 +1542,7 @@ END $$;
 -- Simplifies data access for the front-end by joining 3 tables
 CREATE OR REPLACE VIEW v_customer_financial_summary AS
 SELECT 
+    a.account_id,
     c.customer_id,
     c.first_name, 
     c.last_name,
