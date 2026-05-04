@@ -1,5 +1,7 @@
 -- ============================================================
---  CORE BANKING SYSTEM (CBS) — PHASE IV: PL/pgSQL MODULE
+--  CORE BANKING SYSTEM (CBS) — PL/SQL & AUTOMATION
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
+--  PHASE IV: PL/pgSQL MODULE
 --  Includes Composite Types, Functions, Procedures, and Triggers
 -- ============================================================
 

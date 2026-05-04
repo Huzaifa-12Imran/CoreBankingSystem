@@ -1,6 +1,7 @@
 ============================================================
 SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
 PROJECT: CORE BANKING SYSTEM (CBS)
+DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 ============================================================
 
 1. PROJECT OVERVIEW
@@ -43,3 +44,6 @@ FR5: System Auditing
 
 4. ENTITY LIST
 - Account, Customer, Transaction, Branch, Loan, Collateral, Card, Employee, AuditLog, Interest.
+
+---
+© 2026 Core Banking System - Huzaifa Imran & Muhammad Arslan

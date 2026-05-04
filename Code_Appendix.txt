@@ -1,5 +1,6 @@
 -- ============================================================
 --  CORE BANKING SYSTEM (CBS) --- DATABASE SCHEMA & DCL
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Phase I & II: Table Definitions, Constraints, and Permissions
 -- ============================================================
 
@@ -336,6 +337,7 @@ REVOKE ALL ON transactions FROM PUBLIC;
 REVOKE ALL ON loans        FROM PUBLIC;
 -- ============================================================
 --  CORE BANKING SYSTEM (CBS) --- DATA POPULATION
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Phase II: Mock Data for Testing and Verification
 -- ============================================================
 
@@ -495,7 +497,8 @@ INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,
 INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (11,'2023-12-01',3798,2931,867,77069,'ACCOUNT_DEBIT');
 INSERT INTO loan_payments (loan_id,payment_date,amount_paid,principal_component,interest_component,balance_remaining,payment_mode) VALUES (11,'2024-01-01',3798,2963,835,74106,'ACCOUNT_DEBIT');
 -- ============================================================
---  CORE BANKING SYSTEM (CBS) --- PHASE III: ADVANCED QUERIES
+--  CORE BANKING SYSTEM (CBS) --- ADVANCED QUERIES & ANALYTICS
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Includes Joins, Set Operations, Subqueries, and Aggregates
 -- ============================================================
 
@@ -709,7 +712,9 @@ JOIN   loan_types lt ON lt.loan_type_id = l.loan_type_id
 WHERE  l.status IN ('ACTIVE','CLOSED')
 ORDER  BY repaid_pct DESC;
 -- ============================================================
---  CORE BANKING SYSTEM (CBS) --- PHASE IV: PL/pgSQL MODULE
+--  CORE BANKING SYSTEM (CBS) --- PL/SQL & AUTOMATION
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
+--  PHASE IV: PL/pgSQL MODULE
 --  Includes Composite Types, Functions, Procedures, and Triggers
 -- ============================================================
 
@@ -1586,7 +1591,8 @@ FROM   pkg_loan_mgmt.generate_schedule(1000000, 15, 24, CURRENT_DATE);
 -- Example: High-value customer report
 CALL pkg_reports.rpt_high_value_customers(100000);
 -- ============================================================
---  CORE BANKING SYSTEM (CBS) --- FINAL ACADEMIC UPGRADES
+--  CORE BANKING SYSTEM (CBS) --- PERFORMANCE & VIEW UPGRADES
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Phase III & IV: Performance and Advanced PL/SQL
 -- ============================================================
 

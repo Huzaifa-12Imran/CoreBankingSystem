@@ -78,4 +78,4 @@ This project satisfies all requirements for the **Database Systems Final Project
 - Role-based Access Control (GRANT/REVOKE).
 
 ---
-*Developed for academic evaluation by Huzaifa Imran.*
+*Developed for academic evaluation by **Huzaifa Imran** & **Muhammad Arslan**.*

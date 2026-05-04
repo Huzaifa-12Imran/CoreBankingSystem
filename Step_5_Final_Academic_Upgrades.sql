@@ -1,5 +1,6 @@
 -- ============================================================
---  CORE BANKING SYSTEM (CBS) — FINAL ACADEMIC UPGRADES
+--  CORE BANKING SYSTEM (CBS) — PERFORMANCE & VIEW UPGRADES
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Phase III & IV: Performance and Advanced PL/SQL
 -- ============================================================
 

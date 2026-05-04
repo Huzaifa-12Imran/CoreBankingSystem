@@ -1,5 +1,6 @@
 -- ============================================================
 --  CORE BANKING SYSTEM (CBS) — DATA POPULATION
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Phase II: Mock Data for Testing and Verification
 -- ============================================================
 

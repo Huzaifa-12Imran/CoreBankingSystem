@@ -1,5 +1,6 @@
 -- ============================================================
---  CORE BANKING SYSTEM (CBS) — PHASE III: ADVANCED QUERIES
+--  CORE BANKING SYSTEM (CBS) — ADVANCED QUERIES & ANALYTICS
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Includes Joins, Set Operations, Subqueries, and Aggregates
 -- ============================================================
 

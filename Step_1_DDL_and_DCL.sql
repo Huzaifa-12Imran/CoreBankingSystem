@@ -1,5 +1,6 @@
 -- ============================================================
 --  CORE BANKING SYSTEM (CBS) — DATABASE SCHEMA & DCL
+--  DEVELOPED BY: HUZAIFA IMRAN & MUHAMMAD ARSLAN
 --  Phase I & II: Table Definitions, Constraints, and Permissions
 -- ============================================================
 
