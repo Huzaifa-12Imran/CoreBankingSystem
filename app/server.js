@@ -154,7 +154,7 @@ app.delete('/api/customers/:id', async (req, res) => {
         ['customers', 'DELETE', req.params.id, 'SYSTEM', `Customer record deleted: ${name}`]
     );
     
-    res.status(204).send();
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

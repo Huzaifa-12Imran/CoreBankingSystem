@@ -390,13 +390,22 @@ async function loadAuditLogs() {
 }
 
 async function deleteCustomer(id) {
-    if (confirm('Delete this customer?')) {
+    if (confirm('Are you sure you want to permanently delete this record?')) {
         try {
             const res = await fetch(`${API_BASE}/customers/${id}`, { method: 'DELETE' });
+            const result = await res.json();
+            
             if (res.ok) {
+                alert('Record deleted successfully.');
                 loadCustomers();
+                loadStats();
                 loadAuditLogs();
+            } else {
+                alert('ACCESS DENIED: ' + (result.error || 'Check database constraints.'));
             }
-        } catch (err) { console.error(err); }
+        } catch (err) { 
+            console.error(err);
+            alert('Network error or server is offline.');
+        }
     }
 }
