@@ -82,4 +82,4 @@ INSERT INTO loans (customer_id,loan_type_id,branch_id,principal_amount,interest_
 
 -- ── 8. AUDIT LOG (Initial Entry) ─────────────────────────
 INSERT INTO audit_log (table_name, operation, record_id, changed_by, remarks) VALUES 
-('SYSTEM', 'INIT', 0, 'SYSTEM', 'Database population completed for Viva demo.');
+('SYSTEM', 'INSERT', 0, 'SYSTEM', 'Database population completed for Viva demo.');
