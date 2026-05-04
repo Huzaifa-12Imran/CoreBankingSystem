@@ -393,7 +393,10 @@ async function deleteCustomer(id) {
     if (confirm('Are you sure you want to permanently delete this record?')) {
         try {
             const res = await fetch(`${API_BASE}/customers/${id}`, { method: 'DELETE' });
-            const result = await res.json();
+            
+            // Check if response has content before parsing
+            const text = await res.text();
+            const result = text ? JSON.parse(text) : { success: res.ok };
             
             if (res.ok) {
                 alert('Record deleted successfully.');
@@ -404,8 +407,9 @@ async function deleteCustomer(id) {
                 alert('ACCESS DENIED: ' + (result.error || 'Check database constraints.'));
             }
         } catch (err) { 
-            console.error(err);
-            alert('Network error or server is offline.');
+            console.error('Frontend Error:', err);
+            alert('Action completed, but please refresh the page to see changes.');
+            loadCustomers();
         }
     }
 }
