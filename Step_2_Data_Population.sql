@@ -76,9 +76,9 @@ INSERT INTO accounts (account_number,customer_id,branch_id,account_type_id,balan
 ('PK36CBS0ISB001000010',10,4,2,1800000,'2016-03-22','ACTIVE');
 
 -- ── 7. LOANS ──────────────────────────────────────────────
-INSERT INTO loans (customer_id,loan_type_id,branch_id,principal_amount,interest_rate,tenure_months,outstanding,status) VALUES 
-(1,1,1,500000,18.00,36,450000,'ACTIVE'),
-(2,2,1,12000000,14.00,120,11500000,'ACTIVE');
+INSERT INTO loans (customer_id,loan_type_id,branch_id,principal_amount,interest_rate,tenure_months,emi_amount,outstanding,status) VALUES 
+(1,1,1,500000,18.00,36,18076,450000,'ACTIVE'),
+(2,2,1,12000000,14.00,120,186395,11500000,'ACTIVE');
 
 -- ── 8. AUDIT LOG (Initial Entry) ─────────────────────────
 INSERT INTO audit_log (table_name, operation, record_id, changed_by, remarks) VALUES 
