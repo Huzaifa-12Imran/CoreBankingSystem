@@ -1,5 +1,6 @@
 const API_BASE = 'http://localhost:3001/api';
 let balanceChart = null;
+let currentCustomers = []; // Cache for editing
 
 document.addEventListener('DOMContentLoaded', () => {
     // Navigation logic
@@ -134,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 loadPageData('customers');
                 loadAuditLogs();
-                alert(editId ? 'Profile Updated!' : 'Customer Registered!');
+                showToast(editId ? 'Profile Updated successfully!' : 'Customer Registered successfully!', 'success');
             } else if (result.errors) {
                 for (const [field, message] of Object.entries(result.errors)) {
                     const errorSpan = document.getElementById(`err-${field}`);
@@ -142,8 +143,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (errorSpan) errorSpan.textContent = message;
                     if (inputField) inputField.style.borderColor = 'var(--danger)';
                 }
+                showToast('Please correct the highlighted errors.', 'error');
             }
-        } catch (err) { console.error(err); }
+        } catch (err) { 
+            console.error(err); 
+            showToast('System connection error.', 'error');
+        }
     };
 
     // INITIAL LOAD
@@ -235,9 +240,9 @@ async function loadCustomers() {
     if (!tableBody) return;
     try {
         const res = await fetch(`${API_BASE}/customers`);
-        const data = await res.json();
+        currentCustomers = await res.json();
         tableBody.innerHTML = '';
-        data.forEach(c => {
+        currentCustomers.forEach(c => {
             tableBody.innerHTML += `
                 <tr>
                     <td>${c.first_name} ${c.last_name}</td>
@@ -245,13 +250,18 @@ async function loadCustomers() {
                     <td>${c.phone}</td>
                     <td>${c.city}</td>
                     <td>
-                        <button onclick='openEditModal(${JSON.stringify(c)})' style="background: none; border: none; color: var(--accent); cursor: pointer; margin-right: 10px;"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="editCustomer(${c.customer_id})" style="background: none; border: none; color: var(--accent); cursor: pointer; margin-right: 10px;"><i class="fa-solid fa-pen"></i></button>
                         <button onclick="deleteCustomer(${c.customer_id})" style="background: none; border: none; color: var(--muted); cursor: pointer;"><i class="fa-solid fa-trash"></i></button>
                     </td>
                 </tr>
             `;
         });
     } catch (err) { console.error(err); }
+}
+
+function editCustomer(id) {
+    const customer = currentCustomers.find(c => c.customer_id === id);
+    if (customer) openEditModal(customer);
 }
 
 function openEditModal(customer) {
@@ -268,6 +278,10 @@ function openEditModal(customer) {
     form.city.value = customer.city;
     form.address.value = customer.address;
     
+    // Crucial: Populate these even if hidden to satisfy HTML5 'required' validation
+    form.date_of_birth.value = customer.date_of_birth ? customer.date_of_birth.split('T')[0] : '';
+    form.gender.value = customer.gender;
+
     // Hide fields that aren't editable for simplicity in academic demo
     form.date_of_birth.parentElement.style.display = 'none';
     form.gender.parentElement.style.display = 'none';
@@ -320,14 +334,17 @@ async function performTransaction(accountId, accNum) {
         const result = await res.json();
         
         if (res.ok) {
-            alert(`${type} Successful! New Balance: PKR ${parseFloat(result.newBalance).toLocaleString()}`);
+            showToast(`${type} Successful! New Balance: PKR ${parseFloat(result.newBalance).toLocaleString()}`, 'success');
             loadPageData('accounts');
             loadStats();
             loadAuditLogs();
         } else {
-            alert('Error: ' + result.error);
+            showToast('Error: ' + result.error, 'error');
         }
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+        console.error(err); 
+        showToast('Database connection failed.', 'error');
+    }
 }
 
 async function loadFullTransactions() {
@@ -399,17 +416,46 @@ async function deleteCustomer(id) {
             const result = text ? JSON.parse(text) : { success: res.ok };
             
             if (res.ok) {
-                alert('Record deleted successfully.');
+                showToast('Record deleted successfully.', 'success');
                 loadCustomers();
                 loadStats();
                 loadAuditLogs();
             } else {
-                alert('ACCESS DENIED: ' + (result.error || 'Check database constraints.'));
+                showToast('ACCESS DENIED: ' + (result.error || 'Check constraints.'), 'error');
             }
         } catch (err) { 
             console.error('Frontend Error:', err);
-            alert('Action completed, but please refresh the page to see changes.');
+            showToast('Action completed. Refreshing...', 'info');
             loadCustomers();
         }
     }
+}
+
+function showToast(message, type = 'info') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    let icon = 'fa-info-circle';
+    if (type === 'success') icon = 'fa-check-circle';
+    if (type === 'error') icon = 'fa-exclamation-circle';
+
+    toast.innerHTML = `
+        <i class="fa-solid ${icon}"></i>
+        <div class="toast-msg">${message}</div>
+    `;
+
+    container.appendChild(toast);
+
+    // Remove after 5 seconds
+    setTimeout(() => {
+        toast.classList.add('toast-fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
 }

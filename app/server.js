@@ -12,6 +12,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Prevent API Caching for real-time updates
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
+
 // DB Connection
 const pool = new Pool({
   user: 'postgres',
@@ -132,6 +138,10 @@ app.put('/api/customers/:id', async (req, res) => {
       [first_name, last_name, email, phone, city, address, req.params.id]
     );
     
+    if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Customer not found' });
+    }
+
     // LOG ACTION
     await pool.query(
         'INSERT INTO audit_log (table_name, operation, record_id, changed_by, remarks) VALUES ($1, $2, $3, $4, $5)',
@@ -139,7 +149,10 @@ app.put('/api/customers/:id', async (req, res) => {
     );
 
     res.json(result.rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error('Update error:', err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.delete('/api/customers/:id', async (req, res) => {
