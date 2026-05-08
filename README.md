@@ -1,31 +1,29 @@
-# 🏦 Core Banking System (CBS) — Production Ready
-
+# 🏦 Core Banking System (CBS) — Enterprise Grade
 ![License](https://img.shields.io/badge/Academic-Project-blue)
 ![Database](https://img.shields.io/badge/Database-PostgreSQL%2017-336791?logo=postgresql&logoColor=white)
 ![Backend](https://img.shields.io/badge/Backend-Node.js-339933?logo=node.js&logoColor=white)
-![Frontend](https://img.shields.io/badge/Frontend-Vanilla%20JS-F7DF1E?logo=javascript&logoColor=black)
 ![Design](https://img.shields.io/badge/Design-Zinc%20Bento-09090b)
+![Status](https://img.shields.io/badge/Status-Viva--Ready-success)
 
-A robust, full-stack Core Banking System designed for academic excellence and production-grade data management. This system manages everything from customer enrollment to automated interest accruals and loan lifecycles.
+A robust, full-stack Core Banking System (CBS) designed for academic excellence and production-grade data management. This project demonstrates advanced database architecture, ACID-compliant transaction handling, and a modern, high-performance user interface.
 
 ---
 
 ## 🌟 Key Features
 
-### 🛠️ Advanced Database Logic
-- **Normalization**: Fully normalized to 3NF/BCNF to ensure zero data redundancy.
+### 🛠️ Advanced Database Architecture
+- **Normalization**: Fully optimized to **3NF/BCNF** to ensure zero data redundancy and maximum integrity.
+- **Modular Design**: Implemented using **PostgreSQL Schemas** to emulate Oracle-style packages (`pkg_account_ops`, `pkg_loan_mgmt`), ensuring clean namespace separation.
 - **PL/SQL Automation**: 
-  - Automated **EMI Calculations** for loans.
-  - Real-time **Audit Logging** via database triggers.
-  - **Dormant Account Detection** using explicit cursors.
-  - **Interest Accrual Posting** as a dedicated financial entity.
-- **Complex Views**: Unified reporting via `v_customer_financial_summary` for high-performance dashboarding.
+  - **Triggers**: Automated audit logging, age-based validation (18+), and intelligent account number generation.
+  - **Procedures**: Atomic logic for multi-stage transactions (Transfer, Loan Approval, EMI Posting).
+  - **Cursors**: Explicit cursors for batch processing of monthly interest and dormant account detection.
 
-### 🖥️ Premium Interface (Zinc Aesthetic)
-- **Bento Grid Dashboard**: Visualizes net liquidity, system stability, and recent activity.
-- **Interactive Command Palette**: `Ctrl + K` navigation for rapid customer lookup.
-- **Live Audit Feed**: Real-time visualization of database events.
-- **Full CRUD & Transactions**: Perform deposits, withdrawals, and profile updates with a single click.
+### 🖥️ Premium Interface (Zinc Bento Aesthetic)
+- **Bento Grid Dashboard**: Real-time visualization of net liquidity, tier-1 capital stability, and customer growth.
+- **Interactive Command Palette**: `Ctrl + K` navigation for rapid customer lookup and system navigation.
+- **Modern Notifications**: Custom Toast notification system for non-blocking success/error feedback.
+- **Full CRUD & Banking Ops**: Perform real-time deposits, withdrawals, profile updates, and record deletions with automated audit trails.
 
 ---
 
@@ -33,49 +31,60 @@ A robust, full-stack Core Banking System designed for academic excellence and pr
 
 | Layer | Technologies |
 | :--- | :--- |
-| **Database** | ![Postgres](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white) |
-| **Backend** | ![NodeJS](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white) ![Express](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white) |
-| **Frontend** | ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white) ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white) ![JS](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) |
-| **Tools** | ![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white) ![Postman](https://img.shields.io/badge/Postman-FF6C37?style=for-the-badge&logo=Postman&logoColor=white) |
+| **Database** | **PostgreSQL 17** (B-Tree Indexing, Schemas, PL/pgSQL) |
+| **Backend** | **Node.js** (Express.js), **pg** (Pool Connection Management) |
+| **Frontend** | **Vanilla JS**, **CSS3 (Custom Design System)**, **Chart.js**, **FontAwesome** |
+| **Security** | **DCL (RBAC)** with fine-grained Roles (Teller, Auditor, Admin) |
 
 ---
 
-## 📂 Project Structure
+## 📂 Project Roadmap & Files
 
-```bash
-├── app/                  # Full-stack application source
-│   ├── server.js         # Node.js Express backend
-│   └── public/           # Frontend (HTML, Zinc CSS, JS)
-├── Step_1_DDL_and_DCL.sql # Schema & Permissions
-├── Step_2_Data_Population.sql # Mock Data (15+ Records)
-├── Step_3_Advanced_Queries.sql # Analytical Reports
-├── Step_4_PLSQL_and_Automation.sql # Triggers & Procedures
-├── Step_5_Final_Upgrades.sql # Views & Performance
-├── SRS_Document.txt      # Software Requirements Specification
-└── Code_Appendix.txt     # Consolidated Submission Script
-```
+The project is structured into logical development steps to ensure a smooth viva demonstration:
+
+1.  **[Step 1: DDL & DCL](Step_1_DDL_and_DCL.sql)**: Schema definition, constraints, and Role-Based Access Control.
+2.  **[Step 2: Data Population](Step_2_Data_Population.sql)**: 100+ total records across 12+ tables to simulate a live environment.
+3.  **[Step 3: Advanced Queries](Step_3_Advanced_Queries.sql)**: Complex analytical reports using Joins, Set Operations, and Subqueries.
+4.  **[Step 4: PL/SQL & Automation](Step_4_PLSQL_and_Automation.sql)**: The "Brain" of the system—Triggers, Functions, and Procedures.
+5.  **[Step 5: Final Upgrades](Step_5_Final_Academic_Upgrades.sql)**: High-performance Views and Custom Composite Types.
 
 ---
 
-## 🚦 Getting Started
+## 🚦 Installation & Setup
 
-1.  **Database Setup**:
-    -   Run the `Step_1` through `Step_5` SQL scripts in sequence on a PostgreSQL 17 instance.
-2.  **Server Startup**:
-    -   Navigate to `/app`.
-    -   Run `npm install` and `npm start`.
-3.  **Access**:
-    -   Open `http://localhost:3001` in your browser.
+### Prerequisites
+- PostgreSQL 17+
+- Node.js (Latest LTS)
+
+### Setup Instructions
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/Huzaifa-12Imran/CoreBankingSystem.git
+    cd CoreBankingSystem
+    ```
+2.  **Initialize Database**:
+    Execute scripts `Step_1` through `Step_5` in order using your preferred SQL client or `psql`.
+3.  **Launch Backend**:
+    ```bash
+    cd app
+    npm install
+    node server.js
+    ```
+4.  **Open Dashboard**: Navigate to `http://localhost:3001`.
 
 ---
 
-## 📜 Academic Compliance
-This project satisfies all requirements for the **Database Systems Final Project**, including:
-- EERD Specialization (Savings vs Current Accounts).
-- ACID-compliant transactions.
-- Multi-join complex views.
-- Correlated subqueries and Set operations (UNION/EXCEPT).
-- Role-based Access Control (GRANT/REVOKE).
+## 📜 Academic Compliance Dashboard
+
+| Requirement | Implementation Detail | Status |
+| :--- | :--- | :---: |
+| **Normalization** | Tables optimized to 3NF/BCNF | ✅ |
+| **ACID Compliance** | Managed via `BEGIN/COMMIT/ROLLBACK` in banking logic | ✅ |
+| **Set Operations** | `UNION`, `EXCEPT`, `INTERSECT` for system reporting | ✅ |
+| **Triggers** | 8+ triggers for auditing and business rules | ✅ |
+| **Complex Views** | `v_customer_financial_summary` with correlated subqueries | ✅ |
+| **DCL** | 4 distinct roles with specific table-level permissions | ✅ |
 
 ---
-*Developed for academic evaluation by **Huzaifa Imran** & **Muhammad Arslan**.*
+*Developed for the Semester Project — Database Systems (CS-311)*  
+**Team**: **Huzaifa Imran** & **Muhammad Arslan**
